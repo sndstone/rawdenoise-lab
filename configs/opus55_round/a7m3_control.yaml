@@ -1,0 +1,53 @@
+data:
+  augment: true
+  crop_size: 256
+  exposure_range:
+  - 0.6
+  - 1
+  exposure_sampling: linear
+  identity_probability: 0.1
+  kind: bootstrap
+  manifest: data/bootstrap/a7m3_train.json
+  read_range:
+  - 0.0001
+  - 0.004
+  root: data
+  row_max: 0.0005
+  shot_range:
+  - 1.0e-05
+  - 0.001
+device: cuda:0
+loss:
+  gamma_weight: 0.25
+  kind: charbonnier
+  linear_weight: 1.0
+model:
+  cond: none
+  dec_blk_nums:
+  - 1
+  - 1
+  - 1
+  enc_blk_nums:
+  - 1
+  - 1
+  - 2
+  middle_blk_num: 4
+  width: 32
+seed: 20261027
+threads: 2
+training:
+  amp: true
+  amp_dtype: bfloat16
+  batch_size: 4
+  checkpoint_every: 500
+  grad_clip: 1.0
+  identity_init: true
+  keep_checkpoints: 1
+  log_every: 250
+  lr: 0.0001
+  min_lr: 1.0e-06
+  progress: false
+  run_dir: runs/opus55_round/a7m3_control
+  steps: 2500
+  weight_decay: 0.0001
+  workers: 3

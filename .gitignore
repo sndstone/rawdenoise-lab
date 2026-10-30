@@ -1,0 +1,45 @@
+# Never commit data or model weights.
+/data/
+/reference/
+/runs/
+/checkpoints/
+*.mlmodelc/
+*.mlpackage/
+*.mlmodel
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+weight.bin
+*.3fr
+*.3FR
+*.fff
+*.FFF
+*.arw
+*.ARW
+*.dng
+*.DNG
+__pycache__/
+.venv/
+.DS_Store
+*.egg-info/
+.pytest_cache/
+
+# Local working notes
+/internal/
+
+# Small owner-provided demo RAW crops (not training data) are allowed in examples/raw/
+!/examples/raw/
+!/examples/raw/sample_iso100_night_river.dng
+!/examples/raw/sample_iso25600_living_room.dng
+!/examples/raw/sample_iso3200_mushroom.dng
+
+# Local inference outputs and packaging artifacts.
+/outputs/
+/models/
+/build/
+/dist/
+*_denoised.dng
+*_denoised.npy
+*_denoised.tif*

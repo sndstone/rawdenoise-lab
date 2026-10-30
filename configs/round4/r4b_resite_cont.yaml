@@ -1,0 +1,173 @@
+data:
+  kind: mixed
+  probabilities:
+  - 0.35
+  - 0.25
+  - 0.4
+  sources:
+  - augment: true
+    bright_exposure_probability: 0.5
+    crop_size: 128
+    exposure_range:
+    - 0.015625
+    - 1
+    exposure_sampling: log
+    identity_probability: 0.03
+    manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+    read_range:
+    - 3.0e-05
+    - 0.006
+    root: data
+    row_max: 0.0005
+    shot_range:
+    - 1.0e-05
+    - 0.002
+    defect_probability: 0.5
+    defect_options:
+      density_range:
+      - 1.0e-05
+      - 0.0003
+    bin_probability: 0.0
+    bin_factors:
+    - 2
+    channel_gain_probability: 0.5
+    channel_gain_range:
+    - 0.4
+    - 2.5
+    column_relative_max: 0.15
+    impulse_range:
+    - 1.0e-05
+    - 0.005
+    impulse_sigma_range:
+    - 3.0
+    - 30.0
+    kind: bootstrap
+    resite: true
+  - augment: true
+    bright_exposure_probability: 0.5
+    crop_size: 128
+    exposure_range:
+    - 0.015625
+    - 1
+    exposure_sampling: log
+    identity_probability: 0.03
+    manifest: data/bootstrap_binned/x1d2_bin2_train_r4.json
+    read_range:
+    - 3.0e-05
+    - 0.006
+    root: data
+    row_max: 0.0005
+    shot_range:
+    - 1.0e-05
+    - 0.002
+    defect_probability: 0.5
+    defect_options:
+      density_range:
+      - 1.0e-05
+      - 0.0003
+    bin_probability: 0.0
+    bin_factors:
+    - 2
+    channel_gain_probability: 0.5
+    channel_gain_range:
+    - 0.4
+    - 2.5
+    column_relative_max: 0.15
+    impulse_range:
+    - 1.0e-05
+    - 0.005
+    impulse_sigma_range:
+    - 3.0
+    - 30.0
+    kind: bootstrap
+    resite: true
+  - augment: true
+    bright_exposure_probability: 0.5
+    crop_size: 128
+    exposure_range:
+    - 0.015625
+    - 1
+    exposure_sampling: log
+    identity_probability: 0.03
+    manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+    read_range:
+    - 3.0e-05
+    - 0.006
+    root: data
+    row_max: 0.0005
+    shot_range:
+    - 1.0e-05
+    - 0.002
+    defect_probability: 0.5
+    defect_options:
+      density_range:
+      - 1.0e-05
+      - 0.0003
+    bin_probability: 0.0
+    bin_factors:
+    - 2
+    channel_gain_probability: 0.5
+    channel_gain_range:
+    - 0.4
+    - 2.5
+    column_relative_max: 0.0
+    impulse_sigma_range:
+    - 3.0
+    - 30.0
+    kind: bootstrap
+    resite: true
+    iso_coupled:
+      iso_range:
+      - 100.0
+      - 25600.0
+      K_6400: 0.00067
+      read_6400: 0.0006
+      jitter_log: 0.3
+      row_relative_max: 0.1
+      exposure_jitter:
+      - 0.5
+      - 2.0
+loss:
+  gamma_weight: 0.25
+  kind: charbonnier
+  linear_weight: 1.0
+  eps: 1.0e-05
+device: cuda:0
+model:
+  arch: nafnet
+  cond: none
+  width: 40
+  enc_blk_nums:
+  - 1
+  - 1
+  - 2
+  - 4
+  middle_blk_num: 6
+  dec_blk_nums:
+  - 1
+  - 1
+  - 1
+  - 1
+seed: 20261108
+threads: 2
+training:
+  steps: 48000
+  batch_size: 16
+  lr: 0.0001
+  betas:
+  - 0.9
+  - 0.99
+  weight_decay: 0.0001
+  warmup_steps: 500
+  min_lr: 1.0e-06
+  grad_clip: 1.0
+  amp: bf16
+  identity_init: false
+  workers: 3
+  checkpoint_every: 12000
+  keep_checkpoints: 10
+  log_every: 250
+  progress: false
+  run_dir: runs/round4/r4b_resite_cont
+  grad_accum: 1
+  ema_decay: 0.999

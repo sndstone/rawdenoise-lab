@@ -1,0 +1,39 @@
+seed: 42
+device: cuda:0
+threads: 2
+model:
+  width: 32
+  enc_blk_nums: [1, 1, 2]
+  middle_blk_num: 4
+  dec_blk_nums: [1, 1, 1]
+  cond: none
+data:
+  kind: bootstrap
+  root: data
+  manifest: data/bootstrap/a7m3_train.json
+  crop_size: 128
+  augment: true
+  shot_range: [0.00001, 0.001]
+  read_range: [0.0001, 0.004]
+  row_max: 0.0005
+  identity_probability: 0.1
+training:
+  steps: 5000
+  batch_size: 8
+  workers: 3
+  lr: 0.0005
+  min_lr: 0.000005
+  weight_decay: 0.0001
+  amp: true
+  amp_dtype: bfloat16
+  grad_clip: 1.0
+  identity_init: true
+  checkpoint_every: 500
+  keep_checkpoints: 1
+  log_every: 100
+  progress: false
+  run_dir: runs/bootstrap_a7m3
+loss:
+  kind: charbonnier
+  linear_weight: 1.0
+  gamma_weight: 0.25

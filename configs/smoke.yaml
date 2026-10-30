@@ -1,0 +1,30 @@
+seed: 7
+device: cpu
+threads: 4
+model:
+  width: 8
+  enc_blk_nums: [1, 1]
+  middle_blk_num: 1
+  dec_blk_nums: [1, 1]
+  gate: simplegate
+  cond: none
+data:
+  kind: synthetic
+  calibration: calib/example.yaml
+  random_data: true
+  crop_size: 32
+  length: 32
+  iso: 1600
+  augment: false
+training:
+  steps: 20
+  batch_size: 2
+  workers: 0
+  lr: 0.001
+  min_lr: 0.00001
+  amp: false
+  run_dir: runs/smoke
+loss:
+  kind: charbonnier
+  linear_weight: 1.0
+  gamma_weight: 1.0

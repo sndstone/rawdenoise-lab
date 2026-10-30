@@ -1,0 +1,36 @@
+seed: 42
+device: auto
+threads: 4
+model:
+  width: 32
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  dw_expand: 2
+  ffn_expand: 2
+  gate: simplegate
+  cond: none
+data:
+  kind: synthetic
+  root: data
+  manifest: data/clean_train.json
+  calibration: calib/example.yaml  # REPLACE with a measured camera calibration
+  crop_size: 512
+  iso: 1600
+  iso_range: [100, 1600]
+  augment: true
+training:
+  steps: 100000
+  batch_size: 1
+  workers: 0
+  lr: 0.0002
+  min_lr: 0.000001
+  weight_decay: 0.0001
+  amp: true
+  grad_clip: 1.0
+  run_dir: runs/nafnet_x2d2_low
+loss:
+  kind: charbonnier
+  linear_weight: 1.0
+  gamma_weight: 1.0
+  fft_weight: 0.0

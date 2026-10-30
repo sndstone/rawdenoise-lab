@@ -1,0 +1,20 @@
+# Illustrative normalized coefficients ONLY. Replace with measured camera data.
+camera: illustrative_not_measured
+units: normalized
+iso:
+  100:
+    K: 0.00002
+    read_std: 0.0002
+    row_std: 0.00005
+    quant_step: 0.00006104
+    read_distribution: gaussian
+  1600:
+    K: 0.00032
+    read_std: 0.001
+    row_std: 0.00015
+    quant_step: 0.00006104
+    read_distribution: gaussian
+read_log_linear:
+  slope: 0.580482
+  intercept: -2.236787
+  scatter: 0.0

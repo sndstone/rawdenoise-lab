@@ -1,0 +1,65 @@
+data:
+  augment: true
+  bright_exposure_probability: 0.5
+  crop_size: 256
+  exposure_range:
+  - 0.015625
+  - 1
+  exposure_sampling: log
+  identity_probability: 0.1
+  kind: bootstrap
+  manifest: data/bootstrap/x1d2_train.json
+  read_range:
+  - 0.0001
+  - 0.004
+  root: data
+  row_max: 0.0005
+  shot_range:
+  - 1.0e-05
+  - 0.001
+  flat_probability: 0.15
+  flat_options:
+    level_range:
+    - 0.001
+    - 1.0
+loss:
+  gamma_weight: 0.25
+  kind: charbonnier
+  linear_weight: 1.0
+device: cuda:0
+model:
+  arch: nafnet
+  cond: none
+  width: 32
+  enc_blk_nums:
+  - 1
+  - 1
+  - 2
+  middle_blk_num: 4
+  dec_blk_nums:
+  - 1
+  - 1
+  - 1
+seed: 20261101
+threads: 2
+training:
+  steps: 12000
+  batch_size: 4
+  lr: 0.0004
+  betas:
+  - 0.9
+  - 0.99
+  weight_decay: 0.0001
+  warmup_steps: 500
+  min_lr: 1.0e-06
+  grad_clip: 1.0
+  amp: bf16
+  identity_init: true
+  workers: 3
+  checkpoint_every: 3000
+  keep_checkpoints: 4
+  log_every: 250
+  progress: false
+  run_dir: runs/nafnet_round/a_flat15
+  grad_accum: 1
+  ema_decay: 0.999

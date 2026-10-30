@@ -1,0 +1,44 @@
+seed: 20261101
+device: cpu
+threads: 2
+model:
+  arch: nafnet
+  cond: none
+  width: 32
+  enc_blk_nums:
+  - 1
+  - 1
+  - 2
+  middle_blk_num: 4
+  dec_blk_nums:
+  - 1
+  - 1
+  - 1
+data:
+  kind: synthetic
+  calibration: calib/example.yaml
+  random_data: true
+  crop_size: 32
+  length: 32
+  iso: 1600
+  augment: false
+training:
+  steps: 20
+  batch_size: 2
+  workers: 0
+  lr: 0.001
+  min_lr: 1.0e-05
+  amp: false
+  run_dir: /tmp/arch_smoke/nafnet_s1
+  identity_init: true
+  betas:
+  - 0.9
+  - 0.99
+  warmup_steps: 5
+  grad_accum: 2
+  progress: false
+  log_every: 20
+loss:
+  kind: charbonnier
+  linear_weight: 1.0
+  gamma_weight: 1.0
