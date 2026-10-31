@@ -19,10 +19,11 @@ import threading
 
 import numpy as np
 import rawpy
-from impacket.smbconnection import SMBConnection
-from sample_smb_metadata import ReadOnlySMBFile
 from denoise_lab.bayer import normalize_raw
 from denoise_lab.bootstrap import capture_group, screen_crop, split_for_group
+from denoise_lab.cache_precision import (
+    CachePrecisionError, add_cache_dtype_argument, manifest_rows, preflight_cache, save_cache_array,
+)
 from denoise_lab.clean_targets import bin_mosaic
 
 SIZE = 544
@@ -91,6 +92,7 @@ def main():
     p.add_argument("--username", required=True)
     p.add_argument("--password-file", type=Path, required=True)
     p.add_argument("--output", type=Path, default=Path("data/bootstrap_binned"))
+    add_cache_dtype_argument(p)
     p.add_argument("--train-images", type=int, default=400)
     p.add_argument("--val-images", type=int, default=60)
     p.add_argument("--per-group", type=int, default=24)
@@ -102,6 +104,10 @@ def main():
     p.add_argument("--slug", default="x1d2", help="manifest prefix")
     p.add_argument("--min-bytes", type=int, default=0, help="e.g. 40000000 keeps uncompressed A7 III files")
     a = p.parse_args()
+    try:
+        documents = preflight_cache(a.output, a.cache_dtype)
+    except CachePrecisionError as error:
+        p.error(str(error))
     catalog = [json.loads(l) for l in a.catalog.read_text().splitlines()]
     items = select(catalog, set(a.exclude_group), {"train": a.train_images, "val": a.val_images}, a.per_group,
                    camera=a.camera, min_bytes=a.min_bytes)
@@ -109,16 +115,21 @@ def main():
     print("SELECTED", dict(Counter(i["split"] for i in items)), "groups", len({i["group"] for i in items}), flush=True)
     a.output.mkdir(parents=True, exist_ok=True)
     journal = a.output/"sources.jsonl"
-    done = {json.loads(l)["path"] for l in journal.read_text().splitlines()} if journal.exists() else set()
+    records = documents.get(journal.resolve(), [])
+    # Preserve historical resume behavior: every journalled source is done,
+    # including errors. Cached arrays were checked before any network access.
+    done = {r["path"] for r in records}
     password = a.password_file.read_text().rstrip("\r\n")
     lock, state, seen = threading.Lock(), threading.local(), set()
 
     def prepare(item):
         try:
             if not hasattr(state, "conn"):
+                from impacket.smbconnection import SMBConnection
                 state.conn = SMBConnection(a.server, a.server, timeout=60)
                 state.conn.login(a.username, password)
                 state.tree = state.conn.connectTree(a.share)
+            from sample_smb_metadata import ReadOnlySMBFile
             digest = hashlib.sha256()
             with tempfile.TemporaryDirectory(prefix="raw-", dir=a.output) as folder:
                 local = Path(folder)/("source"+item["suffix"])
@@ -143,13 +154,16 @@ def main():
                 directory.mkdir(parents=True, exist_ok=True)
                 for index, crop in enumerate(crops_from(binned, count, sha)):
                     path = directory/f"{sha}_{index:02d}.npy"
-                    np.save(path, binned[crop["y"]:crop["y"]+SIZE, crop["x"]:crop["x"]+SIZE].astype(np.float16))
+                    actual_dtype = save_cache_array(
+                        path, binned[crop["y"]:crop["y"]+SIZE, crop["x"]:crop["x"]+SIZE], a.cache_dtype)
                     entries.append({"clean": str(path.relative_to(a.output.parent)), "source_sha256": sha,
+                                    "cache_dtype": actual_dtype,
                                     "sensor_sha256": sensor, "group": item["group"], "split": item["split"],
                                     "camera": item["camera"], "source_iso": 100, "bin_factor": factor,
                                     "reference_kind": f"bayer_binned_{factor}x{factor}_low_iso_single_frame",
                                     "license": "owner_archive", "sensor_crop": crop})
-            return {**item, "status": "cached", "sha256": sha, "sensor_sha256": sensor, "crops": entries}
+            return {**item, "status": "cached", "sha256": sha, "sensor_sha256": sensor,
+                    "cache_dtype": a.cache_dtype, "crops": entries}
         except Exception as error:
             return {**item, "status": "error", "error": f"{type(error).__name__}: {error}"}
 
@@ -158,13 +172,14 @@ def main():
         for n, future in enumerate(as_completed([pool.submit(prepare, i) for i in pending]), 1):
             record = future.result()
             out.write(json.dumps(record)+"\n")
+            records.append(record)
             if n % 20 == 0 or record["status"] == "error":
                 print(n, len(pending), record["status"], record.get("error", ""), flush=True)
-    records = [json.loads(l) for l in journal.read_text().splitlines()]
     for split in ("train", "val"):
         for factor, _ in plan:
             entries = [c for r in records if r.get("status") == "cached" for c in r["crops"]
                        if c["split"] == split and c["bin_factor"] == factor and c["camera"] == a.camera]
+            manifest_rows(entries, a.cache_dtype)
             (a.output/f"{a.slug}_bin{factor}_{split}.json").write_text(json.dumps(entries))
             print("MANIFEST", split, factor, len(entries), flush=True)
     print("STATUS", dict(Counter(r["status"] for r in records)), flush=True)

@@ -77,6 +77,10 @@ class NoiseModel:
             read = self.rng.normal(size=clean.shape)
         noisy += std*read
         noisy += self.rng.normal(0, p.get("row_std", 0.), (clean.shape[0], 1))
+        # A column offset is shared vertically, independently of the row term.
+        # Do not consume extra draws for legacy profiles without column noise.
+        if p.get("col_std", 0.):
+            noisy += self.rng.normal(0, p["col_std"], (1, clean.shape[1]))
         q = p.get("quant_step", 0.)
         noisy += self.rng.uniform(-q/2, q/2, clean.shape)
         # Optional pixel-fixed PRNU map is supplied explicitly as an array;

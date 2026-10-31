@@ -191,7 +191,7 @@ def main():
         detector=dict(k=8., abs_floor=.01, cross_channel_guard=True, chunk_rows=512),
         summary=summary, comparisons=comparisons, rows=rows, real=real)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(arch.finite_json(report), indent=2, allow_nan=False)+'\n')
+    args.out.write_text(json.dumps(arch.finite_json(report), indent=2, allow_nan=False)+'\n', encoding='utf-8')
     lines = ['Development defect diagnostics; linear sensor units. Clean input means noisy input without injected defects.', '',
              '| Model | Slice | Input | Variant | PSNR | Survival | Defect MAE | Clean FP / million | Prepass ΔPSNR |',
              '|---|---|---|---|---:|---:|---:|---:|---:|']
@@ -207,7 +207,7 @@ def main():
         for c, d in r['channels'].items(): lines.append(f"| {c} | {d['flagged']} | {d['per_MP']:.6g} | {d['hot']} | {d['dead']} |")
         lines += ['', '| y | x | Channel | Kind | Value | Neighbour median |', '|---:|---:|---|---|---:|---:|']
         for d in r['top20']: lines.append(f"| {d['y']} | {d['x']} | {d['channel']} | {d['kind']} | {d['value']:.6g} | {d['neighbour_median']:.6g} |")
-    args.out.with_suffix('.md').write_text('\n'.join(lines)+'\n')
+    args.out.with_suffix('.md').write_text('\n'.join(lines)+'\n', encoding='utf-8')
     print('SAVED', args.out)
 
 

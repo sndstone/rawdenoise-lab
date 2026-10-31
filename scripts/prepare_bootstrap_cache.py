@@ -19,10 +19,11 @@ import time
 
 import numpy as np
 import rawpy
-from impacket.smbconnection import SMBConnection
-from sample_smb_metadata import ReadOnlySMBFile
 from denoise_lab.bayer import normalize_raw
 from denoise_lab.bootstrap import capture_group, screen_crop, split_for_group
+from denoise_lab.cache_precision import (
+    CachePrecisionError, add_cache_dtype_argument, manifest_rows, preflight_cache, save_cache_array,
+)
 
 CAMERAS = {"X1D II 50C": "x1d2", "ILCE-7M3": "a7m3"}
 
@@ -77,11 +78,16 @@ def main():
     parser.add_argument("--username", required=True)
     parser.add_argument("--password-file", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("data/bootstrap"))
+    add_cache_dtype_argument(parser)
     parser.add_argument("--images-per-camera", type=int, default=256)
     parser.add_argument("--patches-per-image", type=int, default=24)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--reserve-gib", type=float, default=12)
     args = parser.parse_args()
+    try:
+        documents = preflight_cache(args.output, args.cache_dtype)
+    except CachePrecisionError as error:
+        parser.error(str(error))
     catalog = {}
     for line in args.catalog.read_text().splitlines():
         item = json.loads(line)
@@ -93,11 +99,9 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     journal = args.output / "sources.jsonl"
     existing = {}
-    if journal.exists():
-        for line in journal.read_text().splitlines():
-            item = json.loads(line)
-            if item.get("status") != "error":
-                existing[item["path"]] = item
+    for item in documents.get(journal.resolve(), []):
+        if item.get("status") != "error":
+            existing[item["path"]] = item
     counts = Counter(item["camera"] for item in existing.values() if item["status"] == "cached")
     seen_sensors = {item["sensor_sha256"] for item in existing.values() if item.get("sensor_sha256")}
     seen_sources = {item["sha256"] for item in existing.values() if item.get("sha256")}
@@ -115,11 +119,13 @@ def main():
             return {**item, "status": "disk_reserve"}
         try:
             if not hasattr(state, "connection"):
+                from impacket.smbconnection import SMBConnection
                 state.connection = SMBConnection(args.server, args.server, timeout=60)
                 state.connection.login(args.username, password)
                 state.tree = state.connection.connectTree(args.share)
                 with lock:
                     sessions.append((state.connection, state.tree))
+            from sample_smb_metadata import ReadOnlySMBFile
             digest = hashlib.sha256()
             with tempfile.TemporaryDirectory(prefix="raw-", dir=args.output) as folder:
                 local = Path(folder)/("source"+item["suffix"])
@@ -174,13 +180,16 @@ def main():
                 crops = []
                 for index, crop in enumerate(chosen):
                     path = directory / f"{sha}_{index:02d}.npy"
-                    np.save(path, mosaic[crop["y"]:crop["y"]+size, crop["x"]:crop["x"]+size].astype(np.float16))
+                    actual_dtype = save_cache_array(
+                        path, mosaic[crop["y"]:crop["y"]+size, crop["x"]:crop["x"]+size], args.cache_dtype)
                     crops.append({"clean": str(path.relative_to(args.output.parent)),
+                                  "cache_dtype": actual_dtype,
                                   "source_sha256": sha, "sensor_sha256": sensor_sha,
                                   "group": item["group"], "split": item["split"], "camera": item["camera"],
                                   "source_iso": 100, "reference_kind": "low_iso_single_frame_not_verified_clean",
                                   "license": "owner_archive", "sensor_crop": crop})
                 return {**item, "status": "cached", "sha256": sha, "sensor_sha256": sensor_sha,
+                        "cache_dtype": args.cache_dtype,
                         "normalization": normalization, "crops": crops,
                         "source_url": f"smb://{args.server}/{args.share}/{item['path'].replace(chr(92), '/')}"}
         except Exception as error:
@@ -215,11 +224,12 @@ def main():
     stats = {"source_status": dict(Counter(item["status"] for item in existing.values())),
              "prefix_duplicate_candidates_collapsed": header_duplicates, "cameras": {},
              "nas_access": "READ_ONLY", "reference_kind": "low_iso_single_frame_not_verified_clean",
+             "cache_dtype": args.cache_dtype,
              "noise_model": "uncalibrated_bootstrap_prior", "elapsed_seconds": time.monotonic()-started}
     for camera, slug in CAMERAS.items():
         crops = [crop for item in existing.values() if item.get("status") == "cached" and item["camera"] == camera for crop in item["crops"]]
         for split in ["train", "val"]:
-            rows = [crop for crop in crops if crop["split"] == split]
+            rows = manifest_rows([crop for crop in crops if crop["split"] == split], args.cache_dtype)
             (args.output/f"{slug}_{split}.json").write_text(json.dumps(rows, indent=2)+"\n")
         train = {crop["group"] for crop in crops if crop["split"] == "train"}
         val = {crop["group"] for crop in crops if crop["split"] == "val"}

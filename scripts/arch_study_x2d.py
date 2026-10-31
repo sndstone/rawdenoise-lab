@@ -26,7 +26,7 @@ from denoise_lab.arch_registry import build_model
 from denoise_lab.bayer import PHASES, SITES, normalize_raw, pack, unpack
 from denoise_lab.diffusion import BridgeRefiner, UnrolledRefiner
 from denoise_lab.model import gamma
-from denoise_lab.tiling import reflected_pad, tiled_inference
+from denoise_lab.tiling import reflected_bayer_pad, tiled_inference
 
 ROOT = Path(__file__).resolve().parents[1]
 TILING = dict(tile_size=512, overlap=58, feather_power=2.2, alpha=1.)
@@ -100,7 +100,7 @@ def shifted_grid_seam(model, image, shift=128, radius=8, **tiling):
         tiling = TILING
     h, w = image.shape[-2:]
     baseline = tiled_inference(model, image, **tiling)
-    padded = reflected_pad(image, shift, shift, shift, shift)
+    padded = reflected_bayer_pad(image, shift, shift, shift, shift)
     shifted = tiled_inference(model, padded, **tiling)[..., shift:shift+h, shift:shift+w]
     delta = (baseline-shifted).abs().mean((0, 1)).cpu().numpy()
     mask = boundary_mask(h, w, tiling.get('tile_size', 512), tiling.get('overlap', 58), shift, radius)

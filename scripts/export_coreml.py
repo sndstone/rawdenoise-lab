@@ -4,18 +4,19 @@ import argparse
 import numpy as np
 import torch
 from denoise_lab.arch_registry import build_model
+from denoise_lab.checkpoint import checkpoint_weights
 
 
 def model_from_checkpoint(checkpoint, weights="model"):
     """Build and load an unconditioned model without importing Core ML tools."""
     if weights not in {"model", "ema"}:
         raise ValueError("weights must be model or ema")
+    if checkpoint["model_config"].get("arch") == "rgb_nafnet" or "rgb_contract" in checkpoint:
+        raise ValueError("This Core ML exporter supports Bayer checkpoints only; RGB export is unsupported")
     if checkpoint["model_config"].get("cond", "none") != "none":
         raise ValueError("Fixed 4-channel deployment contract requires cond=none")
     model = build_model(checkpoint["model_config"]).eval()
-    if checkpoint.get(weights) is None:
-        raise ValueError(f"Checkpoint has no {weights} weights")
-    model.load_state_dict(checkpoint[weights])
+    model.load_state_dict(checkpoint_weights(checkpoint, weights))
     return model
 
 
@@ -25,6 +26,8 @@ def main():
     p.add_argument("--output", required=True, help="Destination .mlpackage")
     p.add_argument("--weights", choices=["model", "ema"], default="model",
                    help="Checkpoint weights to export (default: model)")
+    p.add_argument("--precision", choices=["fp32", "fp16"], default="fp32",
+                   help="fp32 preserves 16-bit input precision; fp16 needs camera/DN parity validation")
     args = p.parse_args()
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     try:
@@ -34,11 +37,12 @@ def main():
     import coremltools as ct
     example = torch.zeros(1, 4, 512, 512, dtype=torch.float32)
     traced = torch.jit.trace(model, example)
-    converted = ct.convert(traced, convert_to="mlprogram", compute_precision=ct.precision.FLOAT16,
+    precision = ct.precision.FLOAT32 if args.precision == "fp32" else ct.precision.FLOAT16
+    converted = ct.convert(traced, convert_to="mlprogram", compute_precision=precision,
                            inputs=[ct.TensorType(name="inp_1", shape=example.shape, dtype=np.float32)],
                            outputs=[ct.TensorType(name="output", dtype=np.float32)])
     converted.save(args.output)
-    print(f"Saved {args.output}; float32 I/O, fp16 compute")
+    print(f"Saved {args.output}; float32 I/O, {args.precision} compute")
 
 
 if __name__ == "__main__":

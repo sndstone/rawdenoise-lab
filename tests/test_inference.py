@@ -166,3 +166,134 @@ def test_cli_other_formats(tmp_path, checkpoint, output_format):
         mosaic = np.load(output)
         assert mosaic.dtype == np.float32
         assert mosaic.shape == codes.shape
+
+
+@pytest.mark.parametrize('tile_batch_size', [2, 3])
+def test_cpu_bayer_tile_batching_partial_group(checkpoint, tile_batch_size):
+    path, _ = checkpoint
+    denoiser = Denoiser.load(path, device='cpu')
+    packed = np.random.default_rng(91).random((4, 1, 85), dtype=np.float32)
+    options = dict(prepass=False, tile_size=16, overlap=3)
+    expected = denoiser.denoise_packed(packed, **options)
+    original_call = denoiser._call
+    calls = []
+
+    def record(tile):
+        calls.append(tile.shape[0])
+        return original_call(tile)
+
+    denoiser._call = record
+    actual = denoiser.denoise_packed(packed, tile_batch_size=tile_batch_size, **options)
+    # Seven tiles leave one partial group for either requested batch size.
+    assert calls == [tile_batch_size]*(7//tile_batch_size)+[7 % tile_batch_size]
+    np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+    calls.clear()
+    unchanged = denoiser.denoise_packed(packed, strength=0, tile_batch_size=tile_batch_size)
+    np.testing.assert_array_equal(unchanged, packed)
+    assert not np.shares_memory(unchanged, packed)
+    assert calls == []
+
+
+@pytest.mark.parametrize('invalid', [0, -1, True, False, 1.5, '2'])
+@pytest.mark.parametrize('strength', [0, 1])
+def test_tile_batch_size_api_rejects_invalid_before_inference(checkpoint, invalid, strength):
+    path, _ = checkpoint
+    denoiser = Denoiser.load(path, device='cpu')
+    denoiser._call = lambda tile: pytest.fail('invalid tile batch must not run the model')
+    with pytest.raises(ValueError, match='positive integer'):
+        denoiser.denoise_packed(np.zeros((4, 1, 1), np.float32),
+                               tile_batch_size=invalid, strength=strength)
+
+
+@pytest.mark.parametrize('backend,device', [('onnx', 'cpu'), ('coreml', 'cpu'),
+                                           ('torch', 'mps'), ('torch', 'cuda:0')])
+@pytest.mark.parametrize('strength', [0, 1])
+def test_tile_batching_refuses_other_backends_before_allocation(checkpoint, backend, device, strength):
+    path, _ = checkpoint
+    denoiser = Denoiser.load(path, device='cpu')
+    # Metadata overrides exercise rejection without initializing accelerators.
+    denoiser.backend, denoiser.device = backend, device
+    denoiser._call = lambda tile: pytest.fail('unsupported batch must not run the model')
+    with pytest.raises(ValueError, match='CPU PyTorch Bayer'):
+        denoiser.denoise_packed(np.zeros((4, 1, 1), np.float32), tile_batch_size=2, strength=strength)
+
+
+@pytest.mark.parametrize('value', ['0', '-1', '1.5'])
+def test_cli_tile_batch_size_parser_rejects_invalid(monkeypatch, capsys, value):
+    from denoise_lab import cli
+    monkeypatch.setattr(sys, 'argv', ['rawdenoise', 'missing.dng', '--model', 'missing.pt',
+                                      '--tile-batch-size', value])
+    monkeypatch.setattr(Denoiser, 'load', lambda *a, **k: pytest.fail('parser must reject before loading'))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert 'tile-batch-size' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('tile_batch_size', [None, 2])
+def test_cli_forwards_tile_batch_size(tmp_path, monkeypatch, tile_batch_size):
+    from denoise_lab import cli
+    source = tmp_path/'source.dng'
+    fixture_raw(source)
+    calls = []
+
+    def denoise(packed, **kwargs):
+        calls.append(kwargs)
+        return packed.copy()
+
+    fake = SimpleNamespace(image_kind='bayer', description='torch: cpu', denoise_packed=denoise)
+    monkeypatch.setattr(Denoiser, 'load', lambda *a, **k: fake)
+    monkeypatch.setattr(torch, 'set_num_threads', lambda _: None)
+    argv = ['rawdenoise', str(source), '--model', 'unused.pt', '--device', 'cpu', '--format', 'npy']
+    if tile_batch_size is not None:
+        argv += ['--tile-batch-size', str(tile_batch_size)]
+    monkeypatch.setattr(sys, 'argv', argv)
+    cli.main()
+    assert calls[0]['tile_batch_size'] == (1 if tile_batch_size is None else tile_batch_size)
+    assert (tmp_path/'source_denoised.npy').exists()
+
+
+def test_cli_tile_batching_rejects_rgb(monkeypatch, capsys):
+    from denoise_lab import cli
+    fake = SimpleNamespace(image_kind='rgb', description='torch: cpu')
+    monkeypatch.setattr(Denoiser, 'load', lambda *a, **k: fake)
+    monkeypatch.setattr(torch, 'set_num_threads', lambda _: None)
+    monkeypatch.setattr(sys, 'argv', ['rawdenoise', 'missing.tif', '--model', 'unused.pt',
+                                      '--input-kind', 'rgb', '--tile-batch-size', '2'])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert 'unsupported for RGB inputs' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('requested,expected', [(None, 5), (8, 8)])
+def test_cli_cpu_thread_setting(monkeypatch, capsys, requested, expected):
+    from denoise_lab import cli
+    selected = []
+    monkeypatch.setattr(torch, 'get_num_threads', lambda: 5)
+    monkeypatch.setattr(torch, 'set_num_threads', selected.append)
+    def stop_after_threads(*args, **kwargs):
+        raise ValueError('stop after thread selection')
+    monkeypatch.setattr(Denoiser, 'load', stop_after_threads)
+    argv = ['rawdenoise', 'missing.dng', '--model', 'missing.pt']
+    if requested is not None:
+        argv += ['--cpu-threads', str(requested)]
+    monkeypatch.setattr(sys, 'argv', argv)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert selected == [expected]
+    assert 'stop after thread selection' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('value', ['0', '-1'])
+def test_cli_cpu_threads_rejects_nonpositive_before_load(monkeypatch, capsys, value):
+    from denoise_lab import cli
+    monkeypatch.setattr(sys, 'argv', ['rawdenoise', 'missing.dng', '--model', 'missing.pt',
+                                      '--cpu-threads', value])
+    monkeypatch.setattr(Denoiser, 'load', lambda *a, **k: pytest.fail('invalid threads must not load model'))
+    monkeypatch.setattr(torch, 'set_num_threads', lambda _: pytest.fail('invalid threads must not change runtime'))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert 'cpu-threads must be a positive integer' in capsys.readouterr().err

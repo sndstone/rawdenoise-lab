@@ -19,6 +19,7 @@ from denoise_lab.arch_registry import build_model
 from denoise_lab.losses import DenoiseLoss
 from denoise_lab.flat_augment import FlatAugmentedBootstrapDataset
 from denoise_lab.clean_targets import BinnedBootstrapDataset
+from denoise_lab.flat_identity import make_flat_identity
 
 
 def choose_device(requested="auto"):
@@ -85,6 +86,7 @@ def main():
     cfg.setdefault("model", {}).setdefault("arch", "nafnet")
     model = build_model(cfg["model"]).to(device)
     train = cfg["training"]
+    flat_identity = make_flat_identity(model, train.get("flat_identity"), seed=seed)
     if train.get("identity_init", False) and not (args.resume or args.init_checkpoint):
         torch.nn.init.zeros_(model.body.ending.weight)
         torch.nn.init.zeros_(model.body.ending.bias)
@@ -137,6 +139,10 @@ def main():
             scaler.load_state_dict(saved["scaler"])
             if "torch_rng_state" in saved:
                 torch.set_rng_state(saved["torch_rng_state"].cpu())
+            if flat_identity is not None:
+                if "flat_identity_rng_state" not in saved:
+                    raise ValueError("flat_identity resume requires its private RNG state")
+                flat_identity.generator.set_state(saved["flat_identity_rng_state"].cpu())
     ema_decay = train.get("ema_decay")
     ema = None
     ema_updates = 0
@@ -171,6 +177,8 @@ def main():
                       "step": step, "torch_rng_state": torch.get_rng_state(),
                       "data_manifest_sha256": manifest_sha, "init": init_record,
                       "provisional_bootstrap": cfg["data"]["kind"] == "bootstrap"}
+        if flat_identity is not None:
+            checkpoint["flat_identity_rng_state"] = flat_identity.generator.get_state()
         if ema is not None:
             checkpoint["ema_model"] = ema
             checkpoint["ema_updates"] = ema_updates
@@ -211,6 +219,17 @@ def main():
                 raise FloatingPointError(f"Nonfinite loss at step {step}")
             scaler.scale(loss).backward()
             value += float(loss.detach())
+        identity_log = {}
+        if flat_identity is not None:
+            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp):
+                identity_loss = flat_identity(model, criterion, device)
+                extra_loss = flat_identity.weight*identity_loss
+            if not torch.isfinite(extra_loss):
+                raise FloatingPointError(f"Nonfinite weighted flat_identity loss at step {step}")
+            scaler.scale(extra_loss).backward()
+            identity_log = {"data_loss": value, "identity_loss": float(identity_loss.detach()),
+                            "flat_identity_loss": float(extra_loss.detach())}
+            value += identity_log["flat_identity_loss"]
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), train.get("grad_clip", 1.), error_if_nonfinite=True)
         previous_scale = scaler.get_scale() if ema is not None else None
@@ -221,7 +240,7 @@ def main():
             ema_updates += 1
         sched.step()
         history.append({"step": step+1, "loss": value, "lr": sched.get_last_lr()[0],
-                        "elapsed": time.monotonic()-started})
+                        "elapsed": time.monotonic()-started, **identity_log})
         if step == start or (step+1) % train.get("log_every", 1) == 0:
             elapsed = time.monotonic()-started
             status = {**history[-1], "total_steps": steps, "status": "running",

@@ -92,7 +92,37 @@ Plan on a 2 TB external SSD as the working drive. Retain original bursts until
 registration, target-quality checks and retention needs have been addressed.
 `data/` is git-ignored.
 
+### Cache precision
+
+`prepare_bootstrap_cache.py`, `prepare_binned_cache.py` and
+`cache_real_examples.py` default to **float32** NPY caches, retaining signed
+normalized values and the float32 fractions produced by Bayer binning. Their
+`--cache-dtype float16` (alias `fp16`) option is an explicit lossy storage
+approximation: float16 has only 10 fraction bits and merges many distinct
+16-bit sensor levels. New journal and manifest rows record `cache_dtype`.
+
+Before SMB access, preparation checks existing local NPY dtypes and metadata,
+including legacy rows without dtype fields. A precision mismatch or an
+unverifiable cached row requires a fresh `--output`, or explicit float16 for a
+matching historical cache. Existing arrays are never overwritten; matching
+resumes verify local precision, and file collisions require identical values.
+Selection, capture-day splits, crop policy and RNG remain unchanged.
+Legacy rows with zero accepted crops are valid empty results. Binned-cache
+resumes keep all journalled sources, including recorded errors, without retrying
+them. Preflight also scans nested output directories; a nested legacy float16
+cache therefore requires a separate float32 output root. An interrupted write
+may leave a truncated array: preflight refuses it, and a fresh output directory
+allows regeneration without overwriting the damaged file.
+
+Historical caches and experiments retain their original precision. Regenerating
+at float32 requires the **original RAWs in a new output directory**; merely
+casting old float16 arrays to float32 does not restore lost levels.
+
 ## Clean base-ISO pool for synthetic training
+
+For a smaller first collection, use the [real-reference capture pilot](12-capture-pilot.md)
+before the larger per-camera acquisition above. It separates preparation,
+validation and sealed test sessions, with storage and RGB export guidance.
 
 - Every base-ISO frame from the owner's existing archive.
 - Clean means from the paired scenes.

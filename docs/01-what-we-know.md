@@ -34,6 +34,10 @@ We use the published NAFNet (Chen et al., ECCV 2022) with a gamma head and a
 
 - **Tiles:** 512×512, with a historical overlap of 58 packed px; the current CLI defaults to 60.
 - **Apron:** the area outside the image is **mirrored, not edge-replicated**.
+  Mirror sensor coordinates before packing, or use CFA-site-aware packed indices.
+  Identical reflection indices for R/G1/B/G2 are incorrect: odd sensor sites have
+  different reflection coordinates from even sites. Current unconditioned Bayer
+  inference uses site-aware reflection; RGB uses ordinary tensor reflection.
   SCA pools statistics over the whole tile. A noise-free replicated apron
   shifted the colour of the whole first tile row by 1.5–2.6%. This matters for
   training as well: the model must see tiles whose statistics look natural.

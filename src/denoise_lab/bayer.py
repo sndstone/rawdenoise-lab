@@ -54,8 +54,35 @@ def normalize_raw(raw):
     return unify(normalized, phase).copy()
 
 
-def read_mosaic(path):
-    """NPY/TIFF targets must already be normalized RGGB mosaics, not RGB images."""
+def normalize_codes(mosaic, black_level, white_level, phase="RGGB"):
+    """Normalize sensor codes with explicit scalar or source-CFA-site levels.
+
+    Float32 represents every uint16 code exactly. Subtraction happens after the
+    conversion so unsigned input cannot wrap below black. Signed values remain.
+    """
+    mosaic = np.asarray(mosaic)
+    if mosaic.ndim != 2 or not np.issubdtype(mosaic.dtype, np.number) or np.iscomplexobj(mosaic):
+        raise ValueError("Expected a real 2D sensor mosaic")
+    black, white = [np.asarray(level, dtype=np.float32) for level in (black_level, white_level)]
+    if black.shape not in ((), (2, 2)) or white.shape not in ((), (2, 2)):
+        raise ValueError("Black/white levels must be scalars or 2x2 source-CFA-site arrays")
+    black, white = [np.broadcast_to(level, (2, 2)) for level in (black, white)]
+    if not np.isfinite(black).all() or not np.isfinite(white).all() or np.any(white <= black):
+        raise ValueError("Finite white levels must exceed black levels")
+    result = np.array(mosaic, dtype=np.float32, copy=True)
+    if not np.isfinite(result).all():
+        raise ValueError("Sensor mosaic must be finite")
+    for y, x in SITES:
+        result[y::2, x::2] = (result[y::2, x::2]-black[y, x])/(white[y, x]-black[y, x])
+    return unify(result, phase).copy()
+
+
+def read_mosaic(path, *, black_level=None, white_level=None, phase="RGGB"):
+    """Read normalized floating mosaics, or sensor codes with explicit levels.
+
+    NPY/TIFF contain no assumed sensor calibration. Integer inputs require both
+    black_level and white_level; RGB images require the separate RGB pipeline.
+    """
     path = Path(path)
     if path.suffix.lower() == ".npy":
         a = np.load(path, allow_pickle=False)
@@ -68,7 +95,16 @@ def read_mosaic(path):
             return normalize_raw(raw)
     if a.ndim != 2:
         raise ValueError(f"Expected a 2D normalized mosaic: {path}")
-    return unify(a.astype(np.float32))
+    if (black_level is None) != (white_level is None):
+        raise ValueError("Supply both black_level and white_level for sensor codes")
+    if black_level is not None:
+        return normalize_codes(a, black_level, white_level, phase)
+    if not np.issubdtype(a.dtype, np.floating):
+        raise ValueError(f"Integer NPY/TIFF sensor codes require explicit black_level and white_level: {path}")
+    a = a.astype(np.float32)
+    if not np.isfinite(a).all():
+        raise ValueError(f"Normalized mosaic must be finite: {path}")
+    return unify(a, phase)
 
 
 def augment_mosaic(mosaic, flip_y=False, flip_x=False, transpose=False):

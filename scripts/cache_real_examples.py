@@ -9,10 +9,11 @@ import tempfile
 
 import numpy as np
 import rawpy
-from impacket.smbconnection import SMBConnection
-from sample_smb_metadata import ReadOnlySMBFile
 from denoise_lab.bayer import normalize_raw
 from denoise_lab.bootstrap import capture_group, split_for_group
+from denoise_lab.cache_precision import (
+    CachePrecisionError, add_cache_dtype_argument, manifest_rows, preflight_cache, save_cache_array,
+)
 
 
 def main():
@@ -22,14 +23,18 @@ def main():
     parser.add_argument("--password-file", type=Path, required=True)
     parser.add_argument("--catalog", type=Path, default=Path("runs/bootstrap/catalog.jsonl"))
     parser.add_argument("--output", type=Path, default=Path("data/bootstrap/real_examples"))
+    add_cache_dtype_argument(parser)
     parser.add_argument("--share", required=True)
     args = parser.parse_args()
+    try:
+        documents = preflight_cache(args.output, args.cache_dtype)
+    except CachePrecisionError as error:
+        parser.error(str(error))
     items = [json.loads(line) for line in args.catalog.read_text().splitlines()]
     args.output.mkdir(parents=True, exist_ok=True)
-    connection = SMBConnection(args.server, args.server, timeout=60)
-    connection.login(args.username, args.password_file.read_text().rstrip("\r\n"))
-    tree = connection.connectTree(args.share)
-    records = []
+    connection, tree = None, None
+    records = documents.get((args.output/"manifest.json").resolve(), [])
+    manifest_rows(records, args.cache_dtype)
     try:
         for camera in ["ILCE-7M3", "X1D II 50C"]:
             candidates = []
@@ -47,10 +52,20 @@ def main():
                 candidates.append({**item, "group": group, "split": split_for_group(group)})
             candidates.sort(key=lambda item: (item["split"] != "val", -int(item["iso"]),
                                               hashlib.sha256(item["path"].encode()).hexdigest()))
-            chosen_groups, count = set(), 0
+            previous = [r for r in records if r["camera"] == camera]
+            chosen_groups, count = {r["group"] for r in previous}, len(previous)
+            done = {r["path"] for r in records}
             for item in candidates[:30]:
-                if item["group"] in chosen_groups:
+                if count >= 3:
+                    break
+                if item["group"] in chosen_groups or item["path"] in done:
                     continue
+                if connection is None:
+                    from impacket.smbconnection import SMBConnection
+                    connection = SMBConnection(args.server, args.server, timeout=60)
+                    connection.login(args.username, args.password_file.read_text().rstrip("\r\n"))
+                    tree = connection.connectTree(args.share)
+                from sample_smb_metadata import ReadOnlySMBFile
                 with tempfile.TemporaryDirectory(dir=args.output) as folder:
                     path = Path(folder)/("input"+item["suffix"])
                     digest = hashlib.sha256()
@@ -76,8 +91,9 @@ def main():
                 _, x, y = min(options)
                 sha = digest.hexdigest()
                 destination = args.output/f"{sha}.npy"
-                np.save(destination, mosaic[y:y+size, x:x+size].astype(np.float16))
+                actual_dtype = save_cache_array(destination, mosaic[y:y+size, x:x+size], args.cache_dtype)
                 records.append({**item, "sha256": sha, "crop_x": x, "crop_y": y,
+                                "cache_dtype": actual_dtype,
                                 "crop": str(destination.relative_to(args.output.parents[1])),
                                 "purpose": "unpaired_real_inference_visual_only", "nas_access": "READ_ONLY"})
                 chosen_groups.add(item["group"])
@@ -85,11 +101,14 @@ def main():
                 print("REAL_EXAMPLE", camera, "ISO", item["iso"], "exposure", item["exposure"], flush=True)
                 if count == 3:
                     break
+        manifest_rows(records, args.cache_dtype)
         (args.output/"manifest.json").write_text(json.dumps(records, indent=2)+"\n")
     finally:
-        connection.disconnectTree(tree)
-        connection.logoff()
-        connection.close()
+        if connection is not None:
+            if tree is not None:
+                connection.disconnectTree(tree)
+            connection.logoff()
+            connection.close()
 
 
 if __name__ == "__main__":

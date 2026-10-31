@@ -35,3 +35,12 @@ def test_missing_ema_and_conditioned_checkpoint_rejected():
         export_coreml.model_from_checkpoint({"model_config": config}, "ema")
     with pytest.raises(ValueError, match="cond=none"):
         export_coreml.model_from_checkpoint({"model_config": {**config, "cond": "noise_map"}})
+
+
+def test_training_ema_and_rgb_export_contract():
+    config = dict(width=2, enc_blk_nums=[1], dec_blk_nums=[1], middle_blk_num=1)
+    state = build_model(config).state_dict()
+    model = export_coreml.model_from_checkpoint({"model_config": config, "ema_model": state}, "ema")
+    assert not model.training
+    with pytest.raises(ValueError, match="Bayer checkpoints only"):
+        export_coreml.model_from_checkpoint({"model_config": {"arch": "rgb_nafnet"}})

@@ -70,11 +70,21 @@ From the repository root:
 ```bash
 rawdenoise photo.3FR other.DNG --model models/r4_plain_fp32.onnx --output-dir outputs --device cpu
 rawdenoise photo.ARW --model models/r4_plain_weights.pt --strength 0.7
-rawdenoise photo.3FR --model models/r4_plain_fp16.mlpackage --format tiff
+rawdenoise photo.3FR --model models/r4_plain_fp32.onnx --format tiff
 rawdenoise --help
 ```
 
-Inputs must be rawpy-readable 2×2 RGB Bayer RAWs (RGGB, BGGR, GRBG or GBRG). X-Trans and Foveon are unsupported. Only unconditioned models are supported. Successful decoding from another camera does not validate its denoising quality.
+Bayer inputs must be rawpy-readable 2×2 RGB Bayer RAWs (RGGB, BGGR, GRBG or GBRG). X-Trans and Foveon are unsupported. Only unconditioned models are supported. Successful decoding from another camera does not validate its denoising quality.
+
+**16-bit RGB TIFF is a separate experimental path.** It requires a three-channel `rgb_nafnet` PyTorch checkpoint with matching explicit color-space/ICC metadata; released Bayer weights cannot process RGB. No trained RGB weights or RGB denoising quality are provided. RGB inference preserves 16-bit codes through float32 normalization and rounded uint16 TIFF output, with no 8-bit conversion. See [RGB model, color contract and paired training recipe](docs/10-rgb-tiff.md).
+
+```bash
+# Requires your own trained RGB checkpoint; this is not a shipped model.
+python scripts/train_rgb.py --manifest data/rgb/pairs.json --output runs/rgb/experimental.pt --device cpu
+rawdenoise photo.tif --model runs/rgb/experimental.pt --device cpu --rgb-color-space srgb
+```
+
+RGB defaults to TIFF output and rejects DNG/NPY. ICC bytes, orientation and TIFF resolution are retained; unsupported color transforms and checkpoint mismatches fail. Untagged, unprofiled inputs need an explicit declaration of their actual encoding. Bayer CLI defaults and output formats remain unchanged.
 
 | Backend | Install | Platforms and device selection |
 |---|---|---|
@@ -89,6 +99,21 @@ Choose one ONNX Runtime variant per environment. ONNX auto selects available pro
 `--strength` blends the complete processed result against the original, from 0 (preserve input) to 1 (full processing). `--no-prepass` disables hot/dead-pixel correction. `--overlap` controls tile overlap in packed pixels (default 60; twice that extent in sensor pixels).
 
 The default DNG output contains the visible sensor mosaic rounded/clipped to uint16, with source CFA layout, black/white levels, color matrix, camera white balance and orientation. This minimal writer does not preserve other EXIF, lens profiles, masked pixels, previews or signatures. Retain the original RAW. `--format tiff` renders a 16-bit sRGB preview using camera white balance without automatic brightening. `--format npy` saves the signed float32 normalized visible mosaic in the source CFA layout without metadata.
+
+## Local demo app
+
+The local browser demo imports one Bayer RAW photo, processes it on this computer,
+and exports a DNG mosaic or a rendered 16-bit TIFF. From the repository root:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m denoise_lab.demo --model models/r4_plain_weights.pt
+```
+
+Open the local URL printed in the terminal, choose a RAW, select the export format,
+then process and download the result. The demo defaults to explicit CPU FP32 and
+requires trusted local PyTorch weights. The optional guarded Mac GPU mode is
+experimental; NPU prototypes failed fidelity and are not offered. See the
+[demo setup, import/export instructions and limitations](docs/13-demo-app.md).
 
 ## How it works
 
@@ -123,6 +148,9 @@ The model uses NAFNet (Nonlinear Activation Free Network), a neural image-restor
 | [07 — Architecture study](docs/07-architecture-study.md) | Historical architecture experiments, superseded by later rounds |
 | [08 — Round 2](docs/08-nafnet-round2.md) | Historical capacity and training-length experiments |
 | [09 — Clean targets and defects](docs/09-clean-targets-and-defects.md) | Later training rounds, target preparation and defect handling |
+| [10 — RGB TIFF](docs/10-rgb-tiff.md) | Experimental three-channel model, 16-bit/color contract and independent paired training |
+| [11 — Precision and evaluation](docs/11-precision-and-evaluation.md) | Export precision, EMA compatibility and matched inference experiments |
+| [13 — Local demo app](docs/13-demo-app.md) | Browser RAW import, processing and DNG/16-bit TIFF export |
 | [References](docs/references.md) | Papers and research resources |
 
 The code and configs retain exploratory experiments. Historical recipes are not the released model's training instructions. `scripts/train_arch_study.py` supports the later binned-target/defect/EMA experiments; `scripts/train.py` also provides the small smoke fixture below. `scripts/run_cuda.py` is optional research tooling requiring a separately prepared Docker/NVIDIA environment.
@@ -146,6 +174,15 @@ python scripts/export_onnx.py --checkpoint models/r4_plain_weights.pt --output m
 ```
 
 Dynamic height/width must be multiples of 16 for the four-stage model. Deployment uses 512 packed-pixel tiles.
+
+New exports default to fp32 computation to preserve input precision. Half-precision
+computation is an explicit approximation requiring low-ISO shadow and sensor-DN
+checks; see [precision guidance](docs/11-precision-and-evaluation.md). Existing
+fp16 release packages retain their original precision.
+
+Bayer tiling mirrors the sensor mosaic with its CFA-site offsets. Older per-plane
+reflection could introduce colored grids near reflected borders; updating weights
+alone does not correct an older host tiler. See [precision and runtime guidance](docs/11-precision-and-evaluation.md).
 
 ## License
 

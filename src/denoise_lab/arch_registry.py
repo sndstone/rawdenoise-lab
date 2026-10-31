@@ -4,12 +4,14 @@ from __future__ import annotations
 from .model import DenoiseNet
 from .arch_study import StudyDenoiseNet
 from .diffusion import BridgeRefiner
+from .rgb_model import RGBDenoiseNet
 
 
 def build_model(model_cfg):
     cfg = dict(model_cfg)
     arch = cfg.pop("arch", "nafnet")
-    builders = {"nafnet": DenoiseNet, "study": StudyDenoiseNet, "bridge_refiner": BridgeRefiner}
+    builders = {"nafnet": DenoiseNet, "study": StudyDenoiseNet, "bridge_refiner": BridgeRefiner,
+                "rgb_nafnet": RGBDenoiseNet}
     if arch not in builders:
         raise ValueError("Unknown architecture: %s" % arch)
     return builders[arch](**cfg)

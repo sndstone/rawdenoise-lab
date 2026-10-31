@@ -15,6 +15,7 @@ Repository = "https://github.com/sndstone/rawdenoise-lab"
 
 [project.scripts]
 rawdenoise = "denoise_lab.cli:main"
+rawdenoise-demo = "denoise_lab.demo:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pillow"]
