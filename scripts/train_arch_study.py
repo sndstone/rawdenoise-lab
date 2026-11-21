@@ -13,13 +13,12 @@ import torch
 import yaml
 from torch.utils.data import DataLoader
 from tqdm import trange
-from denoise_lab.data import BootstrapDataset, PairedBurstDataset, SyntheticDataset, mixed_sampler
+from denoise_lab.data import BootstrapDataset, PairedBurstDataset, SyntheticDataset, mixed_sampler, resumable_loader
 from denoise_lab.model import expand_unconditioned_state, parameter_count
 from denoise_lab.arch_registry import build_model
 from denoise_lab.losses import DenoiseLoss
 from denoise_lab.flat_augment import FlatAugmentedBootstrapDataset
 from denoise_lab.clean_targets import BinnedBootstrapDataset
-from denoise_lab.flat_identity import make_flat_identity
 
 
 def choose_device(requested="auto"):
@@ -39,6 +38,9 @@ def dataset(config, require_conditioning=False):
         if any(key in config for key in ("bin_probability", "bin_factors", "channel_gain_probability", "channel_gain_range", "resite", "iso_coupled", "noise_map_jitter")):
             cls = BinnedBootstrapDataset
         return cls(**config), None
+    if kind == "camera":
+        from denoise_lab.camera_noise import CameraNoiseDataset
+        return CameraNoiseDataset(**config), None
     if kind == "paired":
         if require_conditioning and not config.get("calibration"):
             raise ValueError("Conditioned paired training requires a measured calibration")
@@ -77,6 +79,8 @@ def main():
     args = p.parse_args()
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
+    from train import capture_rng_state, restore_rng_state, training_stream, validate_config
+    validate_config(cfg, arch_study=True)
     seed = cfg.get("seed", 0)
     random.seed(seed)
     np.random.seed(seed)
@@ -86,18 +90,12 @@ def main():
     cfg.setdefault("model", {}).setdefault("arch", "nafnet")
     model = build_model(cfg["model"]).to(device)
     train = cfg["training"]
-    flat_identity = make_flat_identity(model, train.get("flat_identity"), seed=seed)
     if train.get("identity_init", False) and not (args.resume or args.init_checkpoint):
         torch.nn.init.zeros_(model.body.ending.weight)
         torch.nn.init.zeros_(model.body.ending.bias)
     parameter_count(model)
     ds, sampler = dataset(cfg["data"], require_conditioning=model.cond == "noise_map")
     workers = train.get("workers", 0)
-    loader = DataLoader(ds, batch_size=train.get("batch_size", 1), sampler=sampler,
-                        shuffle=sampler is None, num_workers=workers, drop_last=False,
-                        pin_memory=device.type == "cuda", persistent_workers=workers > 0)
-    if len(loader) == 0:
-        raise ValueError("Empty training dataset")
     steps = args.steps or train["steps"]
     opt = torch.optim.AdamW(model.parameters(), lr=train.get("lr", 2e-4), weight_decay=train.get("weight_decay", 1e-4),
                             betas=tuple(train.get("betas", (.9, .999))))
@@ -137,12 +135,7 @@ def main():
             opt.load_state_dict(saved["optimizer"])
             sched.load_state_dict(saved["scheduler"])
             scaler.load_state_dict(saved["scaler"])
-            if "torch_rng_state" in saved:
-                torch.set_rng_state(saved["torch_rng_state"].cpu())
-            if flat_identity is not None:
-                if "flat_identity_rng_state" not in saved:
-                    raise ValueError("flat_identity resume requires its private RNG state")
-                flat_identity.generator.set_state(saved["flat_identity_rng_state"].cpu())
+            restore_rng_state(saved)
     ema_decay = train.get("ema_decay")
     ema = None
     ema_updates = 0
@@ -164,7 +157,30 @@ def main():
     if start >= steps:
         print(f"Checkpoint already completed {start} steps (requested {steps})")
         return
+    stream = training_stream(saved if args.resume else None, seed)
+    loader_options = dict(batch_size=train.get("batch_size", 1), num_workers=workers,
+                          pin_memory=device.type == "cuda")
+    loader = (resumable_loader(ds, sampler, seed=stream["seed"], batches=stream["batches"], **loader_options)
+              if stream is not None else DataLoader(ds, sampler=sampler, shuffle=sampler is None,
+                                                    persistent_workers=workers > 0, **loader_options))
+    if len(loader) == 0:
+        raise ValueError("Empty training dataset")
     iterator = iter(loader)
+    selfsup = cfg.get("selfsup")
+    if selfsup:
+        from denoise_lab.selfsup import RealNoisyDataset, neighbor_loss
+        ss_ds = RealNoisyDataset(selfsup["manifest"], root=selfsup.get("root", "data/selfsup_real"),
+                                 crop_size=selfsup.get("crop_size", 192), min_iso=selfsup.get("min_iso", 0))
+        ss_workers = selfsup.get("workers", 2)
+        ss_sampler = ss_ds.sampler(camera_weights=selfsup.get("camera_weights"))
+        ss_options = dict(batch_size=selfsup.get("batch_size", 8), num_workers=ss_workers,
+                          drop_last=True, pin_memory=device.type == "cuda")
+        ss_loader = (resumable_loader(ss_ds, ss_sampler, seed=stream["seed"], batches=stream["selfsup_batches"],
+                                     stream=1, **ss_options) if stream is not None else
+                     DataLoader(ss_ds, sampler=ss_sampler, persistent_workers=ss_workers > 0, **ss_options))
+        ss_iterator = iter(ss_loader)
+        ss_weight, ss_gamma = float(selfsup.get("weight", 1.)), float(selfsup.get("gamma", 1.))
+        print(f"selfsup: {len(ss_ds)} real crops, weight {ss_weight}, gamma {ss_gamma}", flush=True)
     history = json.loads((run/"history.json").read_text()) if args.resume and (run/"history.json").exists() else []
     history = [row for row in history if row["step"] <= start]
     started = time.monotonic()
@@ -174,11 +190,9 @@ def main():
     def save_checkpoint(step):
         checkpoint = {"model": model.state_dict(), "model_config": cfg.get("model", {}), "config": cfg,
                       "optimizer": opt.state_dict(), "scheduler": sched.state_dict(), "scaler": scaler.state_dict(),
-                      "step": step, "torch_rng_state": torch.get_rng_state(),
+                      "step": step, **capture_rng_state(), "data_stream": stream,
                       "data_manifest_sha256": manifest_sha, "init": init_record,
                       "provisional_bootstrap": cfg["data"]["kind"] == "bootstrap"}
-        if flat_identity is not None:
-            checkpoint["flat_identity_rng_state"] = flat_identity.generator.get_state()
         if ema is not None:
             checkpoint["ema_model"] = ema
             checkpoint["ema_updates"] = ema_updates
@@ -209,6 +223,8 @@ def main():
             except StopIteration:
                 iterator = iter(loader)
                 batch = next(iterator)
+            if stream is not None:
+                stream["batches"] += 1
             noisy, clean = batch["noisy"].to(device), batch["clean"].to(device)
             cond = batch["noise_map"].to(device) if model.cond == "noise_map" else None
             with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp):
@@ -219,17 +235,17 @@ def main():
                 raise FloatingPointError(f"Nonfinite loss at step {step}")
             scaler.scale(loss).backward()
             value += float(loss.detach())
-        identity_log = {}
-        if flat_identity is not None:
-            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp):
-                identity_loss = flat_identity(model, criterion, device)
-                extra_loss = flat_identity.weight*identity_loss
-            if not torch.isfinite(extra_loss):
-                raise FloatingPointError(f"Nonfinite weighted flat_identity loss at step {step}")
-            scaler.scale(extra_loss).backward()
-            identity_log = {"data_loss": value, "identity_loss": float(identity_loss.detach()),
-                            "flat_identity_loss": float(extra_loss.detach())}
-            value += identity_log["flat_identity_loss"]
+            if selfsup:
+                ss_batch = next(ss_iterator)
+                if stream is not None:
+                    stream["selfsup_batches"] += 1
+                with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp):
+                    ss_loss = neighbor_loss(model, ss_batch["noisy"].to(device), ss_batch["sigma"].to(device),
+                                            ss_gamma)*ss_weight/accum
+                if not torch.isfinite(ss_loss):
+                    raise FloatingPointError(f"Nonfinite self-supervised loss at step {step}")
+                scaler.scale(ss_loss).backward()
+                ss_value = float(ss_loss.detach())
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), train.get("grad_clip", 1.), error_if_nonfinite=True)
         previous_scale = scaler.get_scale() if ema is not None else None
@@ -240,7 +256,7 @@ def main():
             ema_updates += 1
         sched.step()
         history.append({"step": step+1, "loss": value, "lr": sched.get_last_lr()[0],
-                        "elapsed": time.monotonic()-started, **identity_log})
+                        "elapsed": time.monotonic()-started, **({"selfsup_loss": ss_value} if selfsup else {})})
         if step == start or (step+1) % train.get("log_every", 1) == 0:
             elapsed = time.monotonic()-started
             status = {**history[-1], "total_steps": steps, "status": "running",

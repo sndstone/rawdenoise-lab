@@ -18,6 +18,31 @@ def synchronize(device):
     elif device.type == 'mps':torch.mps.synchronize()
 
 
+def benchmark_tile(model, device, *, precision='fp32', warmup=20, iterations=30, size=512):
+    """Batch-one random tile timing with synchronized accelerator measurements."""
+    if iterations < 1 or warmup < 0 or size < 16 or size % 16:
+        raise ValueError('positive iterations, nonnegative warmup and size multiple of 16 required')
+    device = torch.device(device)
+    dtype = {'fp32':torch.float32, 'fp16':torch.float16, 'bf16':torch.bfloat16}[precision]
+    generator = torch.Generator().manual_seed(20261101)
+    x = (torch.rand(1, 4, size, size, generator=generator)*.1).to(device)
+    context = torch.autocast(device.type, dtype=dtype) if precision != 'fp32' else contextlib.nullcontext()
+    with torch.inference_mode(), context:
+        for _ in range(warmup):
+            model(x)
+        synchronize(device)
+        times = []
+        for _ in range(iterations):
+            start = time.perf_counter()
+            out = model(x)
+            synchronize(device)
+            times.append((time.perf_counter()-start)*1000)
+        if not torch.isfinite(out).all():
+            raise ValueError('nonfinite output')
+    return dict(median_ms=statistics.median(times), shape=[1, 4, size, size],
+                iterations=iterations, warmup=warmup, dtype=precision)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--config',action='append',type=Path)
@@ -52,18 +77,9 @@ def main():
                 row=dict(arm=name,steps=k,dtype=precision,device=str(device),parameters=count)
                 try:
                     model=model.to(device)
-                    dtype={'fp32':torch.float32,'fp16':torch.float16,'bf16':torch.bfloat16}[precision]
-                    x=torch.rand(1,4,512,512,device=device)*.1
-                    context=(torch.autocast(device.type,dtype=dtype) if precision!='fp32' else contextlib.nullcontext())
-                    with torch.inference_mode(), context:
-                        for _ in range(args.warmup):arm(x)
-                        synchronize(device)
-                        times=[]
-                        for _ in range(args.iterations):
-                            start=time.perf_counter();out=arm(x);synchronize(device)
-                            times.append((time.perf_counter()-start)*1000)
-                        if not torch.isfinite(out).all():raise ValueError('nonfinite output')
-                    median=statistics.median(times)
+                    timing = benchmark_tile(arm, device, precision=precision,
+                                            warmup=args.warmup, iterations=args.iterations)
+                    median=timing['median_ms']
                     row.update(median_ms=median,ms_per_step=median/(k or 1),seconds_400_tiles=median*.4)
                 except Exception as exc:row['error']=str(exc)
                 results.append(row)

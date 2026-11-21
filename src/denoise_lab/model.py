@@ -113,7 +113,9 @@ class NAFNet(nn.Module):
 
     def forward(self, x):
         h, w = x.shape[-2:]
-        x = F.pad(x, (0, (-w) % self.multiple, 0, (-h) % self.multiple))
+        # Traced deployment inputs must be divisible by the stage multiple.
+        if h % self.multiple or w % self.multiple:
+            x = F.pad(x, (0, (-w) % self.multiple, 0, (-h) % self.multiple))
         x, skips = self.intro(x), []
         for enc, down in zip(self.encoders, self.downs):
             x = enc(x)

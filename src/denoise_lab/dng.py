@@ -1,4 +1,4 @@
-"""Minimal uncompressed visible-area CFA DNGs, without proprietary metadata.
+"""Uncompressed visible-area CFA DNGs with guarded standard metadata copying.
 
 Pixels retain their sensor orientation. LibRaw flip codes map to TIFF orientation.
 ColorMatrix1 uses rawpy's camera RGB/XYZ coefficients (LibRaw cam_xyz),
@@ -6,11 +6,14 @@ or the source DNG ColorMatrix1 when available.
 """
 from dataclasses import dataclass, field
 from pathlib import Path
+from importlib.metadata import PackageNotFoundError, version
+import uuid
 
 import numpy as np
 import tifffile
 
 from .bayer import PHASES
+from .tiff_metadata import append_ifds, extratag, read_metadata
 
 
 @dataclass
@@ -24,6 +27,11 @@ class RawMetadata:
     model: str = "Bayer RAW"
     orientation: int = 1
     illuminant: int = 21
+
+    source_tags: dict = field(default_factory=lambda: {'root': {}, 'exif': {}, 'gps': {}})
+    source_name: str = ''
+    geometry_unchanged: bool = False
+    visible_shape: tuple | None = None
 
     @property
     def phase(self):
@@ -54,17 +62,18 @@ class RawMetadata:
         matrix = np.asarray(raw.rgb_xyz_matrix, dtype=float)[:3, :3]
         color_matrix = None
         illuminant = 21
-        if source is not None:
+        source_tags = read_metadata(source) if source is not None else {'root': {}, 'exif': {}, 'gps': {}}
+        tags = source_tags['root']
+        if 50721 in tags:
             try:
-                with tifffile.TiffFile(source) as tif:
-                    tags = tif.pages[0].tags
-                    if 50721 in tags:
-                        values = np.asarray(tags[50721].value, dtype=float).reshape(-1, 2)
-                        color_matrix = (values[:, 0]/values[:, 1]).reshape(3, 3)
-                    if 50778 in tags:
-                        illuminant = int(tags[50778].value)
-            except (tifffile.TiffFileError, OSError):
+                values = np.asarray(tags[50721][2], dtype=float).reshape(-1, 2)
+                candidate = (values[:, 0]/values[:, 1]).reshape(3, 3)
+                if np.isfinite(candidate).all() and abs(np.linalg.det(candidate)) > 1e-12:
+                    color_matrix = candidate
+            except (ValueError, ZeroDivisionError):
                 pass
+        if 50778 in tags:
+            illuminant = int(tags[50778][2][0])
         if color_matrix is None:
             if not np.isfinite(matrix).all() or abs(np.linalg.det(matrix)) < 1e-12:
                 raise ValueError("Source has no usable camera RGB-to-XYZ color matrix")
@@ -74,15 +83,17 @@ class RawMetadata:
             wb = np.ones(3)
         meta = cls(pattern, black[colors], white[colors], color_matrix, wb[1]/wb,
                    orientation={0: 1, 3: 3, 5: 8, 6: 6}.get(raw.sizes.flip, 1), illuminant=illuminant)
-        # rawpy does not expose camera names; TIFF-based RAWs commonly carry them.
-        if source is not None:
-            try:
-                with tifffile.TiffFile(source) as tif:
-                    tags = tif.pages[0].tags
-                    meta.make = str(tags[271].value) if 271 in tags else meta.make
-                    meta.model = str(tags[272].value) if 272 in tags else meta.model
-            except (tifffile.TiffFileError, OSError):
-                pass
+        # rawpy does not expose camera names; standard TIFF-based RAWs do.
+        for code, attr in [(271, 'make'), (272, 'model')]:
+            if code in tags and tags[code][0] == 2:
+                setattr(meta, attr, tags[code][2].rstrip(b'\0').decode('ascii', errors='backslashreplace'))
+        meta.source_tags = source_tags
+        meta.source_name = Path(source).name if source is not None else ''
+        meta.visible_shape = tuple(raw.raw_image_visible.shape)
+        sizes = raw.sizes
+        meta.geometry_unchanged = (sizes.top_margin == sizes.left_margin == 0
+                                   and sizes.raw_height == sizes.height
+                                   and sizes.raw_width == sizes.width)
         meta.phase
         return meta
 
@@ -111,8 +122,14 @@ def _rationals(values):
     return tuple(v for value in values for v in (int(round(float(value)*scale)), scale))
 
 
-def write_dng(path, mosaic, metadata, *, normalized=True):
-    """Write normalized visible sensor pixels, or uint16 codes with normalized=False."""
+def write_dng(path, mosaic, metadata, *, normalized=True, metadata_mode="full", preview=True):
+    """Write a visible-area DNG (normalized floats, or uint16 sensor codes).
+
+    Full mode preserves standard TIFF/DNG/EXIF/GPS metadata and an optional
+    browsing preview. Minimal mode reproduces the legacy writer exactly.
+    """
+    if metadata_mode not in ('full', 'minimal'):
+        raise ValueError("metadata_mode must be full or minimal")
     metadata.phase
     codes = sensor_codes(mosaic, metadata) if normalized else np.asarray(mosaic)
     if codes.ndim != 2 or codes.dtype != np.uint16:
@@ -133,4 +150,69 @@ def write_dng(path, mosaic, metadata, *, normalized=True):
             tag(50728, '2I', 3, _rationals(metadata.neutral)), tag(50778, 'H', 1, metadata.illuminant)]
     # DNG WhiteLevel has one value per sample (one for a CFA image). Source
     # channel-specific whites still drive conversion to the original sensor codes.
-    tifffile.imwrite(Path(path), codes, photometric=32803, metadata=None, extratags=tags)
+    if metadata_mode == 'minimal':
+        # Keep the legacy writer byte-for-byte, including tifffile's Software tag.
+        tifffile.imwrite(Path(path), codes, photometric=32803, metadata=None, extratags=tags)
+        return
+    copied = dict(metadata.source_tags['root'])
+    # Exported pixels are the visible area. Reset geometry; never copy OpcodeList1
+    # (pre-demosaic operations can repeat corrections already applied by decoding).
+    # OpcodeLists2/3 can also reference original coordinates: retain only when no
+    # masked margins were removed. MaskedAreas, original data and hashes are omitted.
+    for code in (50719, 50720, 50729, 50829, 51125):
+        copied.pop(code, None)
+    if not (metadata.geometry_unchanged and metadata.visible_shape == codes.shape):
+        for code in (51009, 51022):
+            copied.pop(code, None)
+    # Decoded sensor levels/CFA/orientation always take priority; colour and WB
+    # rationals can be copied exactly from the source DNG rather than quantized.
+    replacements = {code: extratag(code, value) for code, value in copied.items()}
+    tags = [replacements.pop(t[0], t) for t in tags]
+    tags.extend(replacements.values())
+    tags.extend([tag(50829, 'I', 4, (0, 0, h, w)),
+                 tag(50781, 'B', 16, tuple(uuid.uuid4().bytes))])
+    if metadata.source_name:
+        tags.append(tag(50827, 's', 0, metadata.source_name.encode('utf-8')))
+    for name, code in [('exif', 34664), ('gps', 34852)]:
+        if metadata.source_tags[name]:
+            tags.append(tag(code, 'I', 1, 0))
+    try:
+        software = f'rawdenoise {version("denoise_lab")}'
+    except PackageNotFoundError:
+        software = 'rawdenoise 0.1.0'
+    preview = preview and min(codes.shape) >= 2
+    with tifffile.TiffWriter(Path(path), byteorder='<') as writer:
+        writer.write(codes, photometric=32803, metadata=None, extratags=tags,
+                     software=software, description='Processed by rawdenoise; visible sensor mosaic denoised.',
+                     subifds=1 if preview else None)
+        if preview:
+            writer.write(_thumbnail(codes, metadata), photometric='rgb', metadata=None,
+                         subfiletype=1, extratags=[tag(274, 'H', 1, metadata.orientation)])
+    append_ifds(path, metadata.source_tags)
+
+
+def _thumbnail(codes, metadata):
+    """Cheap <=256px sRGB preview from Bayer cells, without a full demosaic.
+
+    Uses camera WB and the DNG XYZ-to-camera matrix; intended for browsing only.
+    """
+    h, w = codes.shape
+    step = max(1, (max(h, w)//2+255)//256)
+    rgb = np.zeros(((h//2+step-1)//step, (w//2+step-1)//step, 3), dtype=np.float32)
+    counts = np.zeros(3)
+    for y in range(2):
+        for x in range(2):
+            channel = int(metadata.pattern[y, x])
+            values = codes[y:h//2*2:2*step, x:w//2*2:2*step].astype(np.float32)
+            rgb[..., channel] += (values-metadata.black[y, x])/(metadata.white[y, x]-metadata.black[y, x])
+            counts[channel] += 1
+    rgb /= counts
+    rgb /= np.asarray(metadata.neutral)
+    xyz_to_rgb = np.array([[3.2406, -1.5372, -.4986], [-.9689, 1.8758, .0415], [.0557, -.2040, 1.0570]])
+    try:
+        rgb = rgb @ (xyz_to_rgb @ np.linalg.inv(metadata.color_matrix)).T
+    except np.linalg.LinAlgError:
+        pass
+    rgb = np.clip(rgb, 0, 1)
+    rgb = np.where(rgb <= .0031308, 12.92*rgb, 1.055*rgb**(1/2.4)-.055)
+    return np.rint(rgb*255).astype(np.uint8)

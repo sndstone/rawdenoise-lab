@@ -43,3 +43,9 @@ __pycache__/
 *_denoised.dng
 *_denoised.npy
 *_denoised.tif*
+
+# Private GPU host connection settings.
+/configs/gpu_host.yaml
+
+# Body-specific dark calibration maps (generated; may contain camera serials).
+/calib/defect_maps/*.npz

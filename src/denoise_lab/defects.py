@@ -5,8 +5,6 @@ noise can still trigger it; report its masks on held-out real frames before use.
 """
 import math
 import numpy as np
-import torch
-from .tiling import reflect_indices
 
 
 def inject_defects(mosaic, rng, density_range=(1e-5, 3e-4),
@@ -62,151 +60,265 @@ def inject_defects(mosaic, rng, density_range=(1e-5, 3e-4),
     return out, mask
 
 
-def _neighbours(plane, y, x):
-    """Sorted eight neighbours at explicit reflected index grids."""
-    h, w = plane.shape
-    def reflected(i, n):
-        if n == 1: return torch.zeros_like(i)
-        i = i.remainder(2*(n-1))
-        return torch.minimum(i, 2*(n-1)-i)
-    values = torch.stack([plane[reflected(y+dy, h)[:, None], reflected(x+dx, w)[None, :]]
-                          for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx])
-    values = values.sort(dim=0).values
-    return values[0], (values[3]+values[4])*.5, values[-1]
+# Bit flags may overlap: an unstable site can also have an elevated mean.
+HOT, WARM, STUCK, DEAD, HIGH_VARIANCE = 1, 2, 4, 8, 16
+DEFECT_KINDS = {HOT: 'hot', WARM: 'warm', STUCK: 'stuck_high',
+                DEAD: 'low_dead_candidate', HIGH_VARIANCE: 'high_variance'}
 
 
+def dark_statistics(frames):
+    """Streaming moments of signed, normalized visible mosaics (same body/settings).
 
-def _chunk_neighbours(plane, start, stop):
-    """One reflected row halo, then eight shifted views of the same apron."""
-    h, w = plane.shape
-    rows = reflect_indices(h, 1, 1, plane.device)[start:stop+2]
-    columns = reflect_indices(w, 1, 1, plane.device)
-    apron = plane.index_select(0, rows).index_select(1, columns)
-    height = stop-start
-    values = torch.stack([apron[dy:dy+height, dx:dx+w]
-                          for dy in range(3) for dx in range(3) if (dy, dx) != (1, 1)])
-    values = values.sort(dim=0).values
-    return values[0], (values[3]+values[4])*.5, values[-1]
-
-
-def _sigma_model(plane):
-    # At most ~65k deterministic samples, independent of chunk_rows. Equal-width
-    # intensity bins; sparse bins use the global MAD. Cumulative max enforces a
-    # conservative nondecreasing shot/read noise envelope.
-    h, w = plane.shape
-    stride = max(1, math.ceil(math.sqrt(h*w/65536)))
-    y = torch.arange(0, h, stride, device=plane.device)
-    x = torch.arange(0, w, stride, device=plane.device)
-    _, med, _ = _neighbours(plane, y, x)
-    residual = (plane[y[:, None], x[None, :]]-med).flatten()
-    med = med.flatten()
-    def mad(v):
-        return (v-v.median()).abs().median()/.6744897501960817
-    fallback = mad(residual)
-    edges = torch.linspace(0, 1, 9, device=plane.device, dtype=plane.dtype)
-    edges = med.min()+(med.max()-med.min())*edges
-    bins = torch.bucketize(med.contiguous(), edges[1:-1])
-    scales = []
-    for i in range(8):
-        r = residual[bins == i]
-        scales.append(mad(r) if r.numel() >= 32 else fallback)
-    scales = torch.stack(scales).cummax(0).values
-    return edges[1:-1].contiguous(), scales
-
-
-# Mosaic-adjacent photosites of each packed plane (R, G1, B, G2), as (plane, dy, dx)
-# offsets in packed coordinates for an RGGB quad: R(0,0) G1(0,1) B(1,1) G2(1,0).
-_ADJACENT = {0: ((1, 0, 0), (1, 0, -1), (3, 0, 0), (3, -1, 0)),
-             1: ((0, 0, 0), (0, 0, 1), (2, 0, 0), (2, -1, 0)),
-             2: ((3, 0, 0), (3, 0, 1), (1, 0, 0), (1, 1, 0)),
-             3: ((2, 0, 0), (2, 0, -1), (0, 0, 0), (0, 1, 0))}
-
-
-def _shift(plane, dy, dx):
-    """plane[y+dy, x+dx] with edge replication."""
-    h, w = plane.shape
-    ys = (torch.arange(h, device=plane.device)+dy).clamp(0, h-1)
-    xs = (torch.arange(w, device=plane.device)+dx).clamp(0, w-1)
-    return plane.index_select(0, ys).index_select(1, xs)
-
-
-@torch.inference_mode()
-def correct_defects(packed, k=8., abs_floor=.01, cross_channel_guard=True,
-                    static_mask=None, chunk_rows=512, adjacency_ratio=None):
-    """Correct isolated extrema in Bx4xHxW R/G1/B/G2, reflecting at edges.
-
-    Noise is estimated per batch item and plane from residual MAD in eight
-    neighbour-median intensity bins. Statistics always use the original input.
-    Sorting is per plane and row chunk, never a full-frame unfold. Input dtype,
-    device and values at unflagged sites are preserved. No RNG is used.
+    Remove each frame's per-CFA median and row/column offsets before accumulating;
+    broad banding is not a list of defective photosites. Memory is O(sensor size).
+    Two frames are the minimum; variance evidence is weak with so few captures.
     """
-    if packed.ndim != 4 or packed.shape[1] != 4 or min(packed.shape) < 1 or not packed.is_floating_point():
-        raise ValueError('Expected nonempty floating Bx4xHxW')
-    if chunk_rows < 1 or k < 0 or abs_floor < 0:
-        raise ValueError('Invalid detector parameters')
-    if static_mask is not None and (static_mask.shape != packed.shape or static_mask.dtype != torch.bool or static_mask.device != packed.device):
-        raise ValueError('static_mask must be bool with the same shape and device')
-    if adjacency_ratio is not None:
-        return _correct_defects_adjacency(packed, k, abs_floor, static_mask, chunk_rows, float(adjacency_ratio))
-    output, mask = packed.clone(), torch.zeros_like(packed, dtype=torch.bool)
-    h, w = packed.shape[-2:]
-    for b in range(packed.shape[0]):
-        models = [_sigma_model(packed[b, c]) for c in range(4)]
-        for start in range(0, h, chunk_rows):
-            stop = min(h, start+chunk_rows)
-            hot, dead, weak, medians = [], [], [], []
-            for c, (edges, scales) in enumerate(models):
-                nmin, med, nmax = _chunk_neighbours(packed[b, c], start, stop)
-                sigma = scales[torch.bucketize(med.contiguous(), edges)]
-                margin = (k*sigma).clamp_min(abs_floor)
-                value = packed[b, c, start:stop]
-                hot.append(value-nmax > margin)
-                dead.append(nmin-value > margin)
-                weak.append(value-nmax > (k*.5*sigma).clamp_min(abs_floor*.5))
-                medians.append(med)
-            hot, dead, weak = map(torch.stack, (hot, dead, weak))
-            if cross_channel_guard:
-                hot &= (weak.sum(0, keepdim=True)-weak.to(torch.int64)) < 2
-            flags = hot | dead
-            if static_mask is not None: flags |= static_mask[b, :, start:stop]
-            mask[b, :, start:stop] = flags
-            output[b, :, start:stop] = torch.where(flags, torch.stack(medians), packed[b, :, start:stop])
-    return output, mask
+    mean = m2 = positive = negative = None
+    n = 0
+    for frame in frames:
+        a = np.array(frame, dtype=np.float32, copy=True)
+        if a.ndim != 2 or min(a.shape) < 4 or not np.isfinite(a).all():
+            raise ValueError('Expected finite normalized visible dark mosaics')
+        if mean is None:
+            mean, m2 = np.zeros_like(a), np.zeros_like(a)
+            positive = np.zeros(a.shape, np.uint32)
+            negative = np.zeros(a.shape, np.uint32)
+        if a.shape != mean.shape:
+            raise ValueError('Dark frame dimensions differ')
+        for y in range(2):
+            for x in range(2):
+                plane = a[y::2, x::2]
+                # Deterministic sparse samples keep full-resolution calibration cheap.
+                plane -= np.median(plane[::8, ::8])
+                plane -= np.median(plane[:, ::8], axis=1)[:, None]
+                plane -= np.median(plane[::8, :], axis=0)[None, :]
+                sample = plane[::8, ::8]
+                sigma = max(float(np.median(np.abs(sample-np.median(sample)))/.67448975), 1e-7)
+                positive[y::2, x::2] += plane > 3*sigma
+                negative[y::2, x::2] += plane < -3*sigma
+        n += 1
+        delta = a-mean
+        mean += delta/n
+        m2 += delta*(a-mean)
+    if n < 2:
+        raise ValueError('Need at least two dark frames per ISO/exposure/shutter group')
+    return dict(mean=mean, std=np.sqrt(np.maximum(m2/(n-1), 0)),
+                positive=positive.astype(np.float32)/n, negative=negative.astype(np.float32)/n, frames=n)
 
 
-def _correct_defects_adjacency(packed, k, abs_floor, static_mask, chunk_rows, ratio):
-    """Single-photosite test: a defect deviates from its same-colour neighbours
-    while its four mosaic-adjacent (other-colour) photosites show at most
-    `ratio` of that deviation relative to their own same-colour neighbours.
-    Real detail, glints and point lights spread over adjacent photosites
-    through the lens PSF; stuck photosites do not.
+def detect_dark_defects(stats, *, k=6., warm_floor=.0005, hot_floor=.01,
+                        variance_floor=.001, persistence=.75):
+    """Candidate masks from independent dark moments; confidence is empirical evidence.
+
+    Hot/warm means exceed k times typical temporal noise / sqrt(N), with at least
+    `persistence` of frames exceeding 3 sigma. RTS is only a high-variance candidate,
+    not a confirmed telegraph process. Darks cannot establish dead photoresponse;
+    DEAD denotes a persistent negative offset. Flat fields are needed to confirm it.
     """
-    output, mask = packed.clone(), torch.zeros_like(packed, dtype=torch.bool)
-    h, w = packed.shape[-2:]
-    for b in range(packed.shape[0]):
-        models = [_sigma_model(packed[b, c]) for c in range(4)]
-        excess = torch.empty((4, h, w), device=packed.device, dtype=packed.dtype)
-        stats = {}
-        for start in range(0, h, chunk_rows):
-            stop = min(h, start+chunk_rows)
-            for c, (edges, scales) in enumerate(models):
-                nmin, med, nmax = _chunk_neighbours(packed[b, c], start, stop)
-                excess[c, start:stop] = packed[b, c, start:stop]-med
-                stats[(c, start)] = (nmin, med, nmax, scales[torch.bucketize(med.contiguous(), edges)])
-        for start in range(0, h, chunk_rows):
-            stop = min(h, start+chunk_rows)
-            flags_all, medians = [], []
-            for c in range(4):
-                nmin, med, nmax, sigma = stats.pop((c, start))
-                margin = (k*sigma).clamp_min(abs_floor)
-                value, e = packed[b, c, start:stop], excess[c, start:stop]
-                adj = torch.stack([_shift(excess[a], dy, dx)[start:stop] for a, dy, dx in _ADJACENT[c]])
-                hot = (value-nmax > margin) & (adj.amax(0) < ratio*e)
-                dead = (nmin-value > margin) & (adj.amin(0) > ratio*e)
-                flags = hot | dead
-                if static_mask is not None: flags |= static_mask[b, c, start:stop]
-                flags_all.append(flags); medians.append(med)
-            flags = torch.stack(flags_all)
-            mask[b, :, start:stop] = flags
-            output[b, :, start:stop] = torch.where(flags, torch.stack(medians), packed[b, :, start:stop])
-    return output, mask
+    if k <= 0 or not 0 < persistence <= 1 or min(warm_floor, hot_floor, variance_floor) < 0:
+        raise ValueError('Invalid dark detector thresholds')
+    mean, std, n = stats['mean'], stats['std'], stats['frames']
+    kinds = np.zeros(mean.shape, np.uint8)
+    confidence = np.zeros(mean.shape, np.float32)
+    for y in range(2):
+        for x in range(2):
+            mu, sd = mean[y::2, x::2], std[y::2, x::2]
+            noise = max(float(np.median(sd[::8, ::8])), 1e-7)
+            threshold = max(warm_floor, k*noise/math.sqrt(n))
+            pos, neg = stats['positive'][y::2, x::2], stats['negative'][y::2, x::2]
+            high = (mu > threshold) & (pos >= persistence)
+            low = (mu < -threshold) & (neg >= persistence)
+            hot = high & (mu >= hot_floor)
+            stuck = hot & (mu >= .98) & (sd < max(3*noise, .0001))
+            variable = sd > max(variance_floor, k*noise)
+            kinds[y::2, x::2] = (hot*HOT | (high & ~hot)*WARM | stuck*STUCK |
+                                  low*DEAD | variable*HIGH_VARIANCE).astype(np.uint8)
+            confidence[y::2, x::2] = np.maximum(
+                np.where(high, pos, np.where(low, neg, 0))*n/(n+1),
+                variable*((n-1)/(n+1)))
+    return kinds, confidence
+
+
+def make_defect_map(groups, metadata, **thresholds):
+    """Build sparse visible-coordinate records from (condition, frame iterator) pairs.
+
+    Conditions hold iso_min/max, exposure_min/max (seconds), and shutter. Separate
+    records retain non-contiguous observed settings; never bridge an unmeasured ISO.
+    Metadata must include shape and phase, and should include model, serial, origin.
+    """
+    import json
+    result = {key: [] for key in ('coordinates', 'kind', 'confidence', 'mean', 'std', 'group')}
+    conditions = []
+    for condition, frames in groups:
+        stats = dark_statistics(frames)
+        if tuple(stats['mean'].shape) != tuple(metadata['shape']):
+            raise ValueError('Dark geometry differs from map metadata')
+        kinds, confidence = detect_dark_defects(stats, **thresholds)
+        loc = np.argwhere(kinds != 0)
+        yy, xx = loc.T
+        result['coordinates'].append(loc.astype(np.int32))
+        for key, values in [('kind', kinds), ('confidence', confidence),
+                            ('mean', stats['mean']), ('std', stats['std'])]:
+            result[key].append(values[yy, xx])
+        result['group'].append(np.full(len(loc), len(conditions), np.int32))
+        conditions.append({**condition, 'frames': stats['frames']})
+    if not conditions:
+        raise ValueError('No dark frame groups')
+    result = {key: np.concatenate(values) for key, values in result.items()}
+    result['metadata'] = np.array(json.dumps({**metadata, 'version': 1, 'conditions': conditions,
+                                            'thresholds': {**dict(k=6., warm_floor=.0005, hot_floor=.01,
+                                                                 variance_floor=.001, persistence=.75), **thresholds},
+                                            'confidence': 'Empirical support discounted by frame count; not a probability'}))
+    validate_defect_map(result)
+    return result
+
+
+def validate_defect_map(defect_map):
+    """Validate the versioned, pickle-free sparse format before indexing sensors."""
+    import json
+    from .bayer import PHASES
+    meta = json.loads(str(defect_map['metadata']))
+    shape = meta['shape']
+    if meta['version'] != 1 or meta['phase'] not in PHASES or len(shape) != 2 or min(shape) < 4:
+        raise ValueError('Invalid defect map version or Bayer geometry')
+    loc = defect_map['coordinates']
+    if loc.ndim != 2 or loc.shape[1] != 2 or not np.issubdtype(loc.dtype, np.integer):
+        raise ValueError('Invalid defect coordinates')
+    if np.any(loc < 0) or np.any(loc >= np.asarray(shape)):
+        raise ValueError('Defect coordinates outside sensor')
+    for key in ('kind', 'confidence', 'mean', 'std', 'group'):
+        values = defect_map[key]
+        if values.shape != (len(loc),) or not np.isfinite(values).all():
+            raise ValueError(f'Invalid defect map {key}')
+    if (not np.issubdtype(defect_map['kind'].dtype, np.integer) or
+        np.any((defect_map['confidence'] < 0) | (defect_map['confidence'] > 1)) or
+        np.any((defect_map['kind'] < 1) | (defect_map['kind'] > 31)) or
+        np.any(defect_map['std'] < 0)):
+        raise ValueError('Invalid defect attributes')
+    g = defect_map['group']
+    if not np.issubdtype(g.dtype, np.integer) or np.any(g < 0) or np.any(g >= len(meta['conditions'])):
+        raise ValueError('Invalid defect condition index')
+    for condition in meta['conditions']:
+        for prefix in ('iso', 'exposure'):
+            lo, hi = condition[prefix+'_min'], condition[prefix+'_max']
+            if not np.isfinite([lo, hi]).all() or not 0 < lo <= hi:
+                raise ValueError('Invalid ISO/exposure range')
+    return meta
+
+
+def save_defect_map(path, defect_map):
+    from pathlib import Path
+    validate_defect_map(defect_map)
+    path = Path(path)
+    if path.suffix != '.npz':
+        raise ValueError('Defect maps must use .npz')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, **defect_map)
+
+
+def load_defect_map(path):
+    with np.load(path, allow_pickle=False) as saved:
+        result = {key: saved[key] for key in saved.files}
+    validate_defect_map(result)
+    return result
+
+
+def defect_map_mask(defect_map, metadata, *, iso=None, exposure=None, shutter=None):
+    """Validate body/visible geometry and select only observed ISO/exposure ranges.
+
+    Unknown exposure/ISO is an error, never permission to apply every condition.
+    Explicit selection permits a missing serial; known mismatches always fail.
+    """
+    from .bayer import pack
+    meta = validate_defect_map(defect_map)
+    for key in ('shape', 'phase', 'origin', 'raw_shape'):
+        if key in meta and meta[key] != metadata.get(key):
+            raise ValueError(f'Defect map {key} does not match input')
+    for key in ('model', 'serial'):
+        if meta.get(key) and metadata.get(key) and meta[key] != metadata[key]:
+            raise ValueError(f'Defect map {key} does not match input')
+    if iso is None or exposure is None or not np.isfinite([iso, exposure]).all() or min(iso, exposure) <= 0:
+        raise ValueError('Defect map requires input ISO and exposure metadata')
+    shutters = {c.get('shutter', '') for c in meta['conditions']}
+    if shutter is None and len(shutters) > 1:
+        raise ValueError('Map has multiple shutter modes; build/select a single-shutter map')
+    selected = []
+    for c in meta['conditions']:
+        selected.append(c['iso_min'] <= iso <= c['iso_max'] and
+                        c['exposure_min']*(1-1e-6) <= exposure <= c['exposure_max']*(1+1e-6) and
+                        (shutter is None or not c.get('shutter') or c['shutter'] == shutter))
+    if not any(selected):
+        raise ValueError('Input settings outside observed defect map ranges')
+    use = np.asarray(selected)[defect_map['group']]
+    mask = np.zeros(meta['shape'], bool)
+    yy, xx = defect_map['coordinates'][use].T
+    mask[yy, xx] = True
+    return pack(mask, meta['phase'])
+
+
+def find_defect_map(directory, metadata):
+    """Auto-select only an exact model AND known serial; ambiguous matches fail."""
+    from pathlib import Path
+    if not metadata.get('model') or not metadata.get('serial'):
+        return None
+    matches = []
+    for path in sorted(Path(directory).glob('*.npz')):
+        candidate = load_defect_map(path)
+        meta = validate_defect_map(candidate)
+        if all(meta.get(k) == metadata[k] for k in ('model', 'serial')):
+            matches.append(path)
+    if len(matches) > 1:
+        raise ValueError('Multiple defect maps match this body; select --defect-map explicitly')
+    return matches[0] if matches else None
+
+
+def raw_defect_metadata(raw, source):
+    """Standard TIFF/EXIF identity only; no maker-note parsing or guessed serials."""
+    import tifffile
+    desc = raw.color_desc.decode('ascii')
+    phase = ''.join(desc[int(c)] for c in raw.raw_colors_visible[:2, :2].ravel())
+    meta = dict(shape=list(raw.raw_image_visible.shape), phase=phase,
+                origin=[int(raw.sizes.top_margin), int(raw.sizes.left_margin)],
+                raw_shape=[int(raw.sizes.raw_height), int(raw.sizes.raw_width)], model='', serial='')
+    iso = exposure = None
+    try:
+        with tifffile.TiffFile(source) as tif:
+            tags = tif.pages[0].tags
+            meta['model'] = str(tags[272].value).strip() if 272 in tags else ''
+            exif = tags[34665].value if 34665 in tags else {}
+            serial = exif.get('BodySerialNumber', exif.get('CameraSerialNumber', ''))
+            meta['serial'] = str(tags[50735].value if 50735 in tags else serial).strip()
+            iso = exif.get('PhotographicSensitivity', exif.get('ISOSpeedRatings'))
+            value = exif.get('ExposureTime')
+            if value is not None:
+                exposure = value[0]/value[1] if isinstance(value, tuple) else float(value)
+            if iso is not None:
+                iso = float(iso[0] if isinstance(iso, tuple) else iso)
+    except (tifffile.TiffFileError, OSError):
+        pass
+    return meta, iso, exposure
+
+
+def read_dark_frame(path):
+    """Read normalized visible coordinates, without Bayer unification/cropping."""
+    import rawpy
+    with rawpy.imread(str(path)) as raw:
+        meta, iso, exposure = raw_defect_metadata(raw, path)
+        colors = raw.raw_colors_visible
+        black = np.asarray(raw.black_level_per_channel, np.float32)
+        whites = raw.camera_white_level_per_channel
+        white = np.asarray(whites if whites is not None else [raw.white_level]*len(black), np.float32)
+        white = np.where(white > black, white, raw.white_level)
+        if np.any(white <= black):
+            raise ValueError('White levels must exceed black levels')
+        image = (raw.raw_image_visible.astype(np.float32)-black[colors])/(white[colors]-black[colors])
+    return image, meta, iso, exposure
+
+
+def __getattr__(name):
+    # Preserve existing torch helper imports without loading torch for map I/O.
+    if name in {"correct_defects", "correct_mapped_defects", "_neighbours",
+                "_chunk_neighbours", "_sigma_model", "_shift", "_ADJACENT"}:
+        from . import _torch_defects
+        return getattr(_torch_defects, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

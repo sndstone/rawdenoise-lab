@@ -1,0 +1,12 @@
+include README.md CONTRIBUTING.md
+prune data
+prune runs
+prune checkpoints
+prune calib
+prune internal
+prune models
+prune examples
+prune tests
+prune scripts
+prune tools
+global-exclude __pycache__ *.py[cod] .DS_Store

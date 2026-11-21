@@ -27,6 +27,7 @@ from denoise_lab.data import BootstrapDataset
 from denoise_lab.metrics import psnr
 from denoise_lab.model import gamma
 from denoise_lab.arch_registry import build_model
+from denoise_lab.checkpoints import load_checkpoint, model_config, resolve_weights
 from denoise_lab.noise import noise_std
 from denoise_lab.rawstats import estimate_noise_parameters
 
@@ -62,7 +63,7 @@ def masks(target):
 
 
 def masked_psnr(p, t, mask):
-    mse = (p.double()-t.double()).square().mean(1)[0][mask].mean().item()
+    mse = (p.detach().cpu().double()-t.detach().cpu().double()).square().mean(1)[0][torch.as_tensor(mask).cpu()].mean().item()
     return 10*np.log10(1/mse) if mse > 0 else float("inf")
 
 
@@ -101,6 +102,7 @@ def paired(rows, a, b, key="model_psnr"):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--checkpoint", action="append", required=True, metavar="NAME=PATH")
+    ap.add_argument("--weights", choices=["model", "ema"], default="model")
     ap.add_argument("--camera", choices=["x1d2", "a7m3"], required=True)
     ap.add_argument("--root", type=Path, default=Path("data"))
     ap.add_argument("--output", type=Path, required=True)
@@ -108,11 +110,25 @@ def main():
     ap.add_argument("--crops-per-source", type=int, default=3)
     ap.add_argument("--references", default="baseline,control,balanced")
     ap.add_argument("--previous-evaluation", type=Path, help="Legacy evaluation JSON, to flag previously scored sources")
-    args = ap.parse_args()
-    torch.set_num_threads(2)
+    ap.add_argument("--manifest", type=Path, help="Optional cached-reference validation manifest")
+    ap.add_argument("--train-manifest", type=Path, help="Matching training manifest for overlap checks")
+    ap.add_argument("--max-sources", type=int)
+    ap.add_argument("--crop-size", type=int, default=256)
+    ap.add_argument("--slices", nargs="+", help="Exact slice names")
+    evaluate(ap.parse_args())
+
+
+def evaluate(args):
+    """Run the existing deterministic DEV protocol; optional limits support smoke runs."""
+    torch.set_num_threads(getattr(args, "threads", 2))
     started = time.monotonic()
-    train = json.loads((args.root/"bootstrap"/f"{args.camera}_train.json").read_text())
-    validation = json.loads((args.root/"bootstrap"/f"{args.camera}_val.json").read_text())
+    manifest = getattr(args, "manifest", None)
+    train_manifest = getattr(args, "train_manifest", None)
+    if manifest is None:
+        manifest = args.root/"bootstrap"/f"{args.camera}_val.json"
+        train_manifest = args.root/"bootstrap"/f"{args.camera}_train.json"
+    train = json.loads(train_manifest.read_text()) if train_manifest else []
+    validation = json.loads(manifest.read_text())
     for key in ["source_sha256", "sensor_sha256", "group"]:
         if {e[key] for e in train} & {e[key] for e in validation}:
             raise ValueError(f"Train/validation overlap: {key}")
@@ -121,26 +137,35 @@ def main():
         grouped[e["source_sha256"]].append(e)
     rng = random.Random(20261028)
     entries = []
-    for _, values in sorted(grouped.items()):
+    for _, values in sorted(grouped.items())[:getattr(args, "max_sources", None)]:
         values = sorted(values, key=lambda e: e["clean"])
         entries += rng.sample(values, min(args.crops_per_source, len(values)))
+    if not entries:
+        raise ValueError("empty validation manifest")
+    selected = set(getattr(args, "slices", None) or [])
+    known = {f"{ref}|{e:g}|{lv}" for e, lv, ref in SLICES}
+    if selected-known:
+        raise ValueError("unknown slices: "+", ".join(sorted(selected-known)))
     previous = set()
     if args.previous_evaluation and args.previous_evaluation.exists():
         previous = {r["source_sha256"] for r in json.loads(args.previous_evaluation.read_text())["rows"]}
+    weights = getattr(args, "weights", "model")
     models, provenance = {}, {}
     for spec in args.checkpoint:
         label, path = spec.split("=", 1)
-        saved = torch.load(path, map_location="cpu", weights_only=True)
-        model = build_model(saved["model_config"]).to(args.device).eval()
-        model.load_state_dict(saved["model"])
+        saved = load_checkpoint(path)
+        model = build_model(model_config(saved)).to(args.device).eval()
+        model.load_state_dict(resolve_weights(saved, weights))
         models[label] = model
-        provenance[label] = {"checkpoint": path, "sha256": sha(path), "stage_step": saved.get("step"),
+        provenance[label] = {"checkpoint": path, "sha256": sha(path), "weights": weights, "stage_step": saved.get("step"),
                              "model_config": saved["model_config"], "init": saved.get("init"),
                              "training_data": saved.get("config", {}).get("data")}
     rows, estimator = [], defaultdict(list)
     for si, (exposure, level, ref) in enumerate(SLICES):
+        if selected and f"{ref}|{exposure:g}|{level}" not in selected:
+            continue
         parameters = {**LEVELS, **STRESS}[level]
-        dataset = BootstrapDataset(entries, root=args.root, crop_size=256, augment=False, deterministic=True,
+        dataset = BootstrapDataset(entries, root=args.root, crop_size=getattr(args, "crop_size", 256), augment=False, deterministic=True,
                                    seed=20261028+1000*si, fixed_parameters=parameters, exposure_scale=exposure)
         slice_name = f"{ref}|{exposure:g}|{level}"
         for i in range(len(dataset)):
@@ -211,7 +236,8 @@ def main():
                         if c:
                             comparisons.append({"slice": s, "metric": "model_psnr", "subset": "not_previously_scored", **c})
     result = {"protocol": "dev_v2", "status": "DEVELOPMENT diagnostics; validation split previously inspected; not acceptance",
-              "camera": args.camera, "sources": len(grouped), "crops": len(entries), "crop_packed": 256,
+              "camera": args.camera, "sources": len({e["source_sha256"] for e in entries}), "available_sources": len(grouped), "crops": len(entries), "crop_packed": getattr(args, "crop_size", 256),
+              "manifest_sha256": sha(manifest), "weights": weights,
               "previously_scored_sources": len(previous & set(grouped)),
               "slices": SLICES, "levels": LEVELS, "stress": STRESS, "map_modes": list(MAP_MODES),
               "estimator_median_std_ratio": {k: {"median": float(np.median(v)), "p10": float(np.percentile(v, 10)),
@@ -222,6 +248,7 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=1)+"\n")
     print("SAVED", args.output, flush=True)
+    return result
 
 
 if __name__ == "__main__":

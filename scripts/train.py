@@ -2,6 +2,8 @@
 """Config-driven training from scratch. Checkpoints contain our own model only."""
 import argparse
 import hashlib
+import inspect
+import warnings
 from pathlib import Path
 import json
 import random
@@ -12,7 +14,7 @@ import torch
 import yaml
 from torch.utils.data import DataLoader
 from tqdm import trange
-from denoise_lab.data import BootstrapDataset, PairedBurstDataset, SyntheticDataset, mixed_sampler
+from denoise_lab.data import BootstrapDataset, PairedBurstDataset, SyntheticDataset, mixed_sampler, resumable_loader
 from denoise_lab.model import expand_unconditioned_state, parameter_count
 from denoise_lab.arch_registry import build_model
 from denoise_lab.losses import DenoiseLoss
@@ -42,6 +44,134 @@ def dataset(config, require_conditioning=False):
     raise ValueError(f"Unknown dataset kind {kind}")
 
 
+def _check_keys(options, allowed, path):
+    unknown = options.keys()-set(allowed)
+    if unknown:
+        raise ValueError(f"Unsupported {path}.{sorted(unknown)[0]}")
+
+
+def _keyword_parameters(cls):
+    parameters = {}
+    for base in reversed(cls.__mro__):
+        if "__init__" in base.__dict__:
+            parameters.update({key: value for key, value in inspect.signature(base.__init__).parameters.items()
+                               if key != "self" and value.kind in (value.POSITIONAL_OR_KEYWORD, value.KEYWORD_ONLY)})
+    return parameters
+
+
+def validate_dataset_config(config, arch_study=False, path="data"):
+    """Validate constructor contracts without opening manifests or sensor data."""
+    from denoise_lab.camera_noise import CameraNoise, CameraNoiseDataset
+    from denoise_lab.clean_targets import BinnedBootstrapDataset, iso_coupled_parameters
+    from denoise_lab.flat_augment import FlatAugmentedBootstrapDataset, synthetic_smooth_mosaic
+    from denoise_lab.defects import inject_defects
+
+    kind = config.get("kind")
+    options = {k: v for k, v in config.items() if k != "kind"}
+    if kind == "mixed":
+        _check_keys(options, ("sources", "probabilities", "num_samples"), path)
+        sources = options["sources"]
+        weights = options.get("probabilities", [1]*len(sources))
+        if len(weights) != len(sources) or any(w < 0 for w in weights) or sum(weights) <= 0:
+            raise ValueError(f"{path}.probabilities needs one nonnegative weight per source and a positive sum")
+        for index, source in enumerate(sources):
+            validate_dataset_config(source, arch_study, f"{path}.sources[{index}]")
+        return
+    builders = {"synthetic": SyntheticDataset, "bootstrap": BootstrapDataset, "paired": PairedBurstDataset}
+    if arch_study:
+        builders.update(bootstrap=BinnedBootstrapDataset, camera=CameraNoiseDataset)
+    if kind not in builders:
+        raise ValueError(f"Unsupported {path}.kind: {kind!r}")
+    cls = builders[kind]
+    # Match the research trainer's bootstrap dispatch, including its inherited contracts.
+    if arch_study and kind == "bootstrap":
+        cls = BootstrapDataset
+        if any(k in options for k in ("flat_probability", "flat_options", "defect_probability", "defect_options")):
+            cls = FlatAugmentedBootstrapDataset
+        if any(k in options for k in ("bin_probability", "bin_factors", "channel_gain_probability", "channel_gain_range",
+                                     "resite", "iso_coupled", "noise_map_jitter")):
+            cls = BinnedBootstrapDataset
+    parameters = _keyword_parameters(cls)
+    _check_keys(options, parameters, path)
+    for key, parameter in parameters.items():
+        if parameter.default is inspect.Parameter.empty and key not in options:
+            raise ValueError(f"Missing {path}.{key}")
+    for key, function in (("flat_options", synthetic_smooth_mosaic), ("defect_options", inject_defects),
+                          ("iso_coupled", iso_coupled_parameters), ("camera_options", CameraNoise)):
+        if options.get(key) is not None:
+            allowed = inspect.signature(function).parameters.keys()-{"rng", "mosaic", "h", "w", "calibration", "cameras"}
+            _check_keys(options[key], allowed, f"{path}.{key}")
+    if kind == "camera":
+        CameraNoiseDataset.validate_options(options)
+        if not options.get("calibration") or not options.get("cameras"):
+            raise ValueError(f"{path} camera noise needs calibration and cameras")
+        physics = options.get("camera_options", {}).get("physics_options")
+        if physics is not None:
+            _check_keys(physics, ("banding", "quantization", "horizontal_correlation", "vertical_correlation",
+                                  "moment_read", "fixed_seed"), f"{path}.camera_options.physics_options")
+    elif options.get("iso_coupled") and options.get("augment", True):
+        warnings.warn(f"{path}.iso_coupled overrides generic noise controls and exposure_range, "
+                      "exposure_sampling, bright_exposure_probability; exposure_scale still applies", UserWarning)
+
+
+def validate_config(config, arch_study=False):
+    """Fail on unsupported training/dataset settings before model allocation or IO."""
+    allowed = {"seed", "threads", "device", "model", "data", "training", "loss"}
+    if arch_study:
+        allowed.add("selfsup")
+    _check_keys(config, allowed, "config")
+    training = config["training"]
+    allowed = {"steps", "batch_size", "workers", "lr", "min_lr", "weight_decay", "amp", "amp_dtype",
+               "identity_init", "grad_clip", "run_dir", "checkpoint_every", "keep_checkpoints", "log_every", "progress"}
+    if arch_study:
+        allowed.update(("betas", "warmup_steps", "grad_accum", "ema_decay"))
+    _check_keys(training, allowed, "training")
+    amp_dtypes = ("float16", "fp16", "bfloat16", "bf16")
+    if not isinstance(training.get("amp", True), bool) and training.get("amp") not in amp_dtypes:
+        raise ValueError("training.amp must be boolean or a supported precision: fp16/bf16")
+    if "amp_dtype" in training and training["amp_dtype"] not in amp_dtypes:
+        raise ValueError("Unsupported training.amp_dtype")
+    if config.get("selfsup"):
+        _check_keys(config["selfsup"], ("manifest", "root", "crop_size", "min_iso", "batch_size", "workers",
+                                       "camera_weights", "weight", "gamma"), "selfsup")
+    validate_dataset_config(config["data"], arch_study)
+
+
+def amp_dtype(training):
+    return torch.bfloat16 if training.get("amp_dtype", training.get("amp")) in ("bfloat16", "bf16") else torch.float16
+
+
+def capture_rng_state():
+    numpy = np.random.get_state()
+    return {"torch_rng_state": torch.get_rng_state(), "python_rng_state": random.getstate(),
+            "numpy_rng_state": (numpy[0], numpy[1].tolist(), *numpy[2:]),
+            "cuda_rng_state_all": torch.cuda.get_rng_state_all() if torch.cuda.is_initialized() else []}
+
+
+def restore_rng_state(saved):
+    if "torch_rng_state" in saved:
+        torch.set_rng_state(saved["torch_rng_state"].cpu())
+    if "python_rng_state" in saved:
+        random.setstate(saved["python_rng_state"])
+    if "numpy_rng_state" in saved:
+        name, keys, position, gaussian, cached = saved["numpy_rng_state"]
+        np.random.set_state((name, np.asarray(keys, dtype=np.uint32), position, gaussian, cached))
+    if saved.get("cuda_rng_state_all") and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all([state.cpu() for state in saved["cuda_rng_state_all"]])
+
+
+def training_stream(saved, seed):
+    if saved is None:
+        return {"version": 1, "seed": seed, "batches": 0, "selfsup_batches": 0}
+    state = saved.get("data_stream")
+    if state is None:
+        print("Legacy checkpoint: no data_stream progress; using previous loader restart behavior. "
+              "Exact data continuation is unavailable.", flush=True)
+    elif state.get("version") != 1:
+        raise ValueError("Unsupported checkpoint data_stream version")
+    return state
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--config", required=True)
@@ -52,6 +182,7 @@ def main():
     args = p.parse_args()
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
+    validate_config(cfg)
     seed = cfg.get("seed", 0)
     random.seed(seed)
     np.random.seed(seed)
@@ -66,18 +197,13 @@ def main():
     parameter_count(model)
     ds, sampler = dataset(cfg["data"], require_conditioning=model.cond == "noise_map")
     workers = train.get("workers", 0)
-    loader = DataLoader(ds, batch_size=train.get("batch_size", 1), sampler=sampler,
-                        shuffle=sampler is None, num_workers=workers, drop_last=False,
-                        pin_memory=device.type == "cuda", persistent_workers=workers > 0)
-    if len(loader) == 0:
-        raise ValueError("Empty training dataset")
     steps = args.steps or train["steps"]
     opt = torch.optim.AdamW(model.parameters(), lr=train.get("lr", 2e-4), weight_decay=train.get("weight_decay", 1e-4))
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps, eta_min=train.get("min_lr", 1e-6))
     # BF16 avoids FP16 overflow; CPU/MPS retain fp32 operator support.
     amp = bool(train.get("amp", True) and device.type == "cuda")
-    amp_dtype = torch.bfloat16 if train.get("amp_dtype") == "bfloat16" else torch.float16
-    scaler = torch.amp.GradScaler("cuda", enabled=amp and amp_dtype == torch.float16)
+    precision = amp_dtype(train)
+    scaler = torch.amp.GradScaler("cuda", enabled=amp and precision == torch.float16)
     criterion = DenoiseLoss(**cfg.get("loss", {}))
     run = Path(train.get("run_dir", "runs/train"))
     run.mkdir(parents=True, exist_ok=True)
@@ -98,11 +224,18 @@ def main():
             opt.load_state_dict(saved["optimizer"])
             sched.load_state_dict(saved["scheduler"])
             scaler.load_state_dict(saved["scaler"])
-            if "torch_rng_state" in saved:
-                torch.set_rng_state(saved["torch_rng_state"].cpu())
+            restore_rng_state(saved)
     if start >= steps:
         print(f"Checkpoint already completed {start} steps (requested {steps})")
         return
+    stream = training_stream(saved if args.resume else None, seed)
+    loader_options = dict(batch_size=train.get("batch_size", 1), num_workers=workers,
+                          pin_memory=device.type == "cuda")
+    loader = (resumable_loader(ds, sampler, seed=stream["seed"], batches=stream["batches"], **loader_options)
+              if stream is not None else DataLoader(ds, sampler=sampler, shuffle=sampler is None,
+                                                    persistent_workers=workers > 0, **loader_options))
+    if len(loader) == 0:
+        raise ValueError("Empty training dataset")
     iterator = iter(loader)
     history = json.loads((run/"history.json").read_text()) if args.resume and (run/"history.json").exists() else []
     history = [row for row in history if row["step"] <= start]
@@ -113,7 +246,7 @@ def main():
     def save_checkpoint(step):
         checkpoint = {"model": model.state_dict(), "model_config": cfg.get("model", {}), "config": cfg,
                       "optimizer": opt.state_dict(), "scheduler": sched.state_dict(), "scaler": scaler.state_dict(),
-                      "step": step, "torch_rng_state": torch.get_rng_state(),
+                      "step": step, **capture_rng_state(), "data_stream": stream,
                       "data_manifest_sha256": manifest_sha, "init": init_record,
                       "provisional_bootstrap": cfg["data"]["kind"] == "bootstrap"}
         temporary = run/"last.pt.tmp"
@@ -133,17 +266,19 @@ def main():
     model.train()
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
-    print(f"device={device} amp={amp} amp_dtype={amp_dtype} steps={steps} start={start}", flush=True)
+    print(f"device={device} amp={amp} amp_dtype={precision} steps={steps} start={start}", flush=True)
     for step in trange(start, steps, disable=not train.get("progress", True)):
         try:
             batch = next(iterator)
         except StopIteration:
             iterator = iter(loader)
             batch = next(iterator)
+        if stream is not None:
+            stream["batches"] += 1
         noisy, clean = batch["noisy"].to(device), batch["clean"].to(device)
         cond = batch["noise_map"].to(device) if model.cond == "noise_map" else None
         opt.zero_grad(set_to_none=True)
-        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp):
+        with torch.autocast(device_type=device.type, dtype=precision, enabled=amp):
             loss = criterion(model(noisy, cond), clean)
         if not torch.isfinite(loss):
             raise FloatingPointError(f"Nonfinite loss at step {step}")

@@ -19,6 +19,47 @@ Historical (October 2026). Superseded by [docs/09](09-clean-targets-and-defects.
 **Model selection.** Choose by PSNR and SSIM on the real held-out pairs, not
 on synthetic validation data.
 
+## Resume reproducibility (stream version 1)
+
+**Fresh training streams changed on 9 November 2026.** Both trainers now key
+sample selection and augmentation to the run seed and absolute sample position.
+The four training arms launched earlier that day used the previous stream;
+comparisons across this change must record the stream version and cannot claim
+identical training draws. Noise and augmentation formulas are unchanged, as are
+direct dataset callers and deterministic evaluation datasets.
+
+New checkpoints retain every existing field and add `data_stream` (version,
+seed, consumed supervised batches and consumed self-supervised batches), Python
+and NumPy RNG states, and all initialized CUDA RNG states. The existing CPU
+torch RNG field remains. Only consumed batches advance saved progress; worker
+prefetch does not. Shuffle epochs retain partial final batches, while the
+self-supervised replacement stream drops partial batches. Mixed replacement
+sampling and real-noisy crop selection have independent deterministic streams.
+Self-supervised neighbour choices use the restored training torch RNG.
+
+On CPU, uninterrupted versus resumed execution is expected to match exactly
+for batches, model weights, optimizer, scheduler and EMA, including gradient
+accumulation, with zero or multiple loader workers. Keep the same configuration,
+data contents/order, total step budget, software versions, hardware and CPU
+thread count. The stream itself is independent of worker count. Resume from an
+optimizer-step checkpoint with `--resume`; `--init-checkpoint` starts a new
+stream and optimizer schedule. For a controlled interruption test, resume a
+periodic checkpoint from the original fixed schedule. Shortening the first run
+with `--steps` changes the learning-rate schedule and is not equivalent.
+
+Checkpoints without `data_stream` print a legacy notice and retain the previous
+loader-restart behavior, including on subsequent saves/resumes. Their consumed
+sample positions and missing historical RNG states cannot be recovered; exact
+continuation is unavailable. No existing config key, CLI option or checkpoint
+field was removed or renamed.
+
+CUDA RNG restoration supports continuation but does **not** establish bitwise
+CUDA reproducibility. Both trainers retain `cudnn.benchmark = True`; algorithm
+selection, nondeterministic kernels, mixed precision and hardware/software
+differences can change results. CUDA continuation still needs validation on a
+training host. No bitwise guarantee is made for other accelerators, changed
+training schedules/data, or legacy checkpoints.
+
 ## Current archive prototype and shadow experiment
 
 The archive prototypes are smaller than the full recipe above: width 32,
@@ -43,7 +84,7 @@ otherwise. X1D II uses the same 5,000-update budget and initial weights as the
 control; the Sony follow-up is a shorter 2,500-update development run against
 its original checkpoint, not an equal-budget causal ablation.
 
-`scripts/evaluate_shadow_refinement.py` compares the original model, extra-
+`scripts/archive/evaluate_shadow_refinement.py` compares the original model, extra-
 training control and shadow arm on the same held-out sources/noise draws at
 reference scales 1, 1/16 and 1/64. It reports RAW PSNR, gamma error, colour-
 difference error, bias and a zero-output baseline. These are development
@@ -75,6 +116,122 @@ Phase A covers 8 models: X2D II ×3, X1D II ×2, Sony ×3. Plan on about 8–20
 GPU-days in total, or about 3 conditioned models in Phase B. Rented
 H100/A100 time at a few dollars an hour puts a full Phase A sweep in the
 **low hundreds of dollars**. Check current prices before booking.
+
+## LAN GPU jobs
+
+`scripts/gpu_jobs.py` uses only the Python standard library locally. Copy
+`configs/gpu_host.example.yaml` to the ignored `configs/gpu_host.yaml`, replacing
+its placeholder host/user. Alternatively set `RAWDENOISE_GPU_HOST` (optionally
+`user@host`), `RAWDENOISE_GPU_USER`, `RAWDENOISE_GPU_PROJECT` and
+`RAWDENOISE_GPU_MIN_FREE_GB`. The project path defaults to `rawdenoise-lab`
+relative to the remote home; absolute paths also work. Configuration accepts
+flat scalar keys only. Keep private host addresses out of committed files.
+The host needs Python 3, rsync, Docker/NVIDIA, the cached CUDA image used by
+`run_cuda.py`, and the prepared Linux project `.venv`. No packages are installed
+and no image is pulled by this tool. SSH uses existing authentication in batch
+mode; it never changes credentials.
+
+```bash
+python scripts/gpu_jobs.py sync                 # prints rsync commands only
+python scripts/gpu_jobs.py sync --yes
+python scripts/gpu_jobs.py sync --data data/my-targets --yes
+python scripts/gpu_jobs.py submit --gpu 0 --name demo --run-dir runs/demo --checkpoint-size-mb 400 -- scripts/train_arch_study.py --config configs/smoke.yaml --run-dir runs/demo --device cuda:0
+python scripts/gpu_jobs.py status
+python scripts/gpu_jobs.py logs JOB_ID -f
+python scripts/gpu_jobs.py stop JOB_ID
+python scripts/gpu_jobs.py pending
+python scripts/gpu_jobs.py collect JOB_ID
+python scripts/gpu_jobs.py collect --all-finished
+python scripts/gpu_jobs.py collect JOB_ID --include-step-checkpoints
+python scripts/gpu_jobs.py prune-checkpoints runs/demo --keep-latest 1 --keep step_0006000.pt
+python scripts/gpu_jobs.py prune-checkpoints runs/demo --keep-latest 1 --apply
+```
+
+Sync copies only code/configuration/calibration/tests and `pyproject.toml`,
+excluding private host configuration, data, runs, checkpoints and environments;
+there is no deletion pass. `--data` additionally copies that directory under
+remote `data/` using its basename. Existing code files on the host can be
+updated by `sync --yes`; review the dry-run command first.
+
+Submit runs a Python script, detached and unbuffered, in an offline container
+with only the project mounted and the host user's UID/GID. `--gpu` selects the
+physical GPU index from `status`; the selected device is `cuda:0` **inside**
+the container. Submit refuses active compute processes, nonzero utilization,
+more than 256 MiB allocated memory, or another running tool job on that GPU;
+`--force` bypasses this GPU check only. Under a shared submission lock, storage
+admission requires the configurable free-space floor (10 GiB by default), plus
+the new job's checkpoint budget and full budgets for unfinished managed jobs.
+`--no-checkpoints` submits an evaluation or utility job that writes no checkpoints
+(for example `scripts/scoreboard.py`), skipping the training-config estimate.
+`--allow-low-space` explicitly overrides storage admission only. Reservations
+are conservative start-time accounting, not disk quotas; other tools and legacy
+jobs without recorded budgets are not covered.
+
+Budgeting reads the remote training command's `--config` and optional `--steps`
+override. The config must use a block-style `training` mapping with plain
+nonnegative integer `steps`, `checkpoint_every` and `keep_checkpoints` scalars
+(the latter two default to zero); merged mappings are refused. It counts periodic
+and final saves, caps intermediate count by retention, and adds `last.pt` plus
+one transient checkpoint for temporary writes/copies before pruning. Supply the
+estimated size of one full training checkpoint with `--checkpoint-size-mb`
+(MiB), or the tool measures the command's remote `--init-checkpoint`/`--resume`
+file and multiplies its bytes by six to allow for model, optimizer and averaged
+weights. This factor can overestimate full training checkpoints; use an explicit
+measured size when known. Status exposes `checkpoint_bytes`, `storage_bytes`,
+retained count and estimate source per job. No trainer or historical config
+is changed.
+
+The recorded output path defaults to `runs/NAME`; `--run-dir` changes it.
+**Configure the script's own output argument/config to match this path.** The
+tool exports `RAWDENOISE_RUN_DIR`, but existing training scripts do not read it
+automatically. Outputs elsewhere are not collected. Run paths and their ancestors
+must not be symlinks. Submission reserves the run directory across all GPUs,
+including overlapping parent/child paths: active or unknown jobs always block
+reuse. Finished uncollected jobs and nonempty existing output directories require
+submit's explicit `--resume` flag plus the training command's `--resume` pointing
+to an existing checkpoint inside that run. Collection acknowledges completion on
+the remote host as well as recording the local ledger. Each job records its exact
+arguments and GPU in remote `runs/_jobs/JOB_ID/cmd.json` and writes
+`stdout.log` there. Exited containers are retained so exit state remains
+queryable. Status includes GPU utilization/memory, free disk, job states/exit
+codes and the last five log lines. SSH disconnects do not terminate jobs.
+
+Collect transfers the recorded run directory and metadata/logs into temporary
+job-specific staging on the destination filesystem. It compares every collected
+file's size and SHA-256 with a remote manifest, then rechecks that manifest before
+promoting files. Existing identical local files are accepted; differing files
+are reported as conflicts and require explicit manual resolution. Intermediate
+`step_*.pt` files are excluded by default; `--include-step-checkpoints` includes
+them. After verification and promotion, collection acknowledges the remote job
+and atomically updates local `runs/_jobs/ledger.json`, keyed by host/project/job.
+Staging is removed on success or failure. `pending` and `--all-finished` use this
+ledger, including failed/stopped jobs. Failed transfers or conflicts leave new
+collections pending; a failed explicit re-collection invalidates its old local
+success entry too. Missing containers have unknown state and are not
+automatically treated as finished. Jobs started outside this tool have no managed
+metadata and need manual discovery/collection.
+
+`prune-checkpoints` requires explicitly selected remote `runs/...` directories
+belonging only to finished jobs. It is a dry run unless `--apply` is supplied,
+and reports candidate paths and bytes that would be/were freed. It deletes only
+direct numeric `step_*.pt` intermediates, preserving `last.pt`, configs, history,
+manifests and all other files. `--keep-latest N` retains the highest numeric step
+numbers; repeat `--keep` with a basename (for every selected run) or a full
+project-relative path inside a selected run to protect specific checkpoints.
+Traversal, paths outside `runs/`, `runs/_jobs`, and symlinks anywhere in selected
+trees are refused before any deletion. The frozen milestone outside `runs/` is
+ineligible. Pruning shares the submission lock so managed launches cannot race
+its active-job check.
+
+**Host safety:** unrelated long-lived containers (including
+`nvidia-workbench-web` and `nvidia-workbench-api`) and other projects must remain
+untouched. Stop filters and verifies both `rawdenoise.managed=gpu_jobs` and
+`rawdenoise.job=JOB_ID`, then stops only the exact container ID. Never use
+`docker kill $(docker ps -q)` or broad container cleanup. Never use
+`pkill -f <pattern>` inside an SSH shell: it can match the SSH-spawned shell
+and kill the session. Use verified container IDs/labels or explicit PIDs.
+Collection never deletes remote outputs or containers; review disk use and
+arrange explicit, job-specific cleanup separately.
 
 ## Export to ShopPhoto
 

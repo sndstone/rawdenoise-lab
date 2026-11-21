@@ -417,12 +417,12 @@ CK="--checkpoint nafnet_s1=$R/nafnet_s1/last.pt --checkpoint nafnet_s2=$R/nafnet
     --checkpoint mdta=$R/mdta/last.pt --checkpoint win_mid=$R/win_mid/last.pt"
 
 # Main evaluation (Table A)
-python3 scripts/run_cuda.py scripts/evaluate_arch_study.py $CK \
+python3 scripts/run_cuda.py scripts/archive/evaluate_arch_study.py $CK \
   --checkpoint bridge=$R/bridge/last.pt --bridge-steps 1,4 --bridge-stochastic-steps "" \
   $M --device cuda:0 --baseline nafnet_s1 --out $R/eval_main.json
 
 # Bridge K sweep (Table B)
-python3 scripts/run_cuda.py scripts/evaluate_arch_study.py \
+python3 scripts/run_cuda.py scripts/archive/evaluate_arch_study.py \
   --checkpoint nafnet_s1=$R/nafnet_s1/last.pt --checkpoint bridge=$R/bridge/last.pt \
   --bridge-steps 1,2,4,8,16 --bridge-stochastic-steps 4,16 --bridge-seeds 4 \
   --slices "native|1|low" "native|1|high" "native|0.0625|high" "native|0.015625|high" \
@@ -430,7 +430,7 @@ python3 scripts/run_cuda.py scripts/evaluate_arch_study.py \
   $M --device cuda:1 --baseline nafnet_s1 --out $R/eval_bridge.json
 
 # Compute-matched control (Table C)
-python3 scripts/run_cuda.py scripts/evaluate_arch_study.py \
+python3 scripts/run_cuda.py scripts/archive/evaluate_arch_study.py \
   --checkpoint nafnet_s1=$R/nafnet_s1/last.pt --checkpoint nafnet_w64=$R/nafnet_w64/last.pt \
   --checkpoint bridge=$R/bridge/last.pt --bridge-steps 4 --bridge-stochastic-steps "" \
   $M --device cuda:0 --baseline bridge@K4 --out $R/eval_w64.json
@@ -439,7 +439,7 @@ python3 scripts/run_cuda.py scripts/evaluate_arch_study.py \
 # --bridge-steps 1 --realizations 2 --bridge-seeds 2 (private-data experiment; artefacts not published)
 
 # X2D II real-photo diagnostics, seams and seed-std maps
-python3 scripts/run_cuda.py scripts/arch_study_x2d.py \
+python3 scripts/run_cuda.py scripts/archive/arch_study_x2d.py \
   --raw data/evaluation_x2d/stress_iso12800.3fr $CK --checkpoint bridge=$R/bridge/last.pt \
   --device cuda:1 --out-dir $R/x2d
 ```
@@ -449,7 +449,7 @@ Run these on the Mac for Table D:
 ```bash
 PYTHONPATH=src .venv/bin/python scripts/bench_tile.py --device mps --dtypes fp32,fp16 \
   --out runs/arch_study/bench_mps.json            # defaults to the five main arms
-PYTHONPATH=src python3 scripts/probe_coreml.py \
+PYTHONPATH=src python3 scripts/archive/probe_coreml.py \
   --out runs/arch_study/coreml_probe_native.json  # system Python 3.9; add --config for w64
 ```
 

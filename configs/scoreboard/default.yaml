@@ -1,0 +1,45 @@
+# Paths are relative to the current project root. Point them at read-only private
+# data in a local config when running from a worktree without those datasets.
+threads: 2
+gate:
+  min_slice_delta_db: -0.1
+  min_mean_gain_db: 0.0
+  require_improvement: true  # Strict mean > 0, except identical-checkpoint sanity runs.
+  allow_skips: false
+suites:
+  dev:
+    root: data
+    crops_per_source: 3
+    crop_size: 256
+    quick_sources: 2
+    # Same cached references as the round6/round7 development tables.
+    datasets:
+      - name: x1d2_bin4
+        camera: x1d2
+        manifest: data/bootstrap_binned/x1d2_bin4_val_r4.json
+        train_manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+      - name: x1d2_bin4resite
+        camera: x1d2
+        manifest: data/bootstrap_binned/x1d2_bin4resite_val_r4.json
+        train_manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+    gate_metrics: [model_psnr, flat_psnr, texture_psnr]
+  burst:
+    project_root: .
+    specs:
+      - runs/round6/eval/loo_x1d2.json
+      - runs/round6/eval/loo_a7m3.json
+    block: 16
+    quick_groups: 1
+    quick_crop_size: 512
+  camera:
+    root: data/camera_bench
+    roi: 512
+    context: 64
+    quick_photos_per_band: 1
+    quick_rois: 1
+    bootstrap_samples: 1000
+  speed:
+    size: 512
+    precision: fp32
+    warmup: 20
+    iterations: 30

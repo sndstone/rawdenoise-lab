@@ -3,6 +3,8 @@ from itertools import islice
 
 import torch
 
+from .tile_geometry import shift_offsets, tile_starts
+
 
 def reflect_indices(length, before, after, device):
     # Unlike F.pad, supports aprons larger than the image itself.
@@ -43,17 +45,24 @@ def reflected_bayer_pad(image, left, right, top, bottom):
         -1, indices(w, left, right, x)) for c, (y, x) in enumerate(((0,0),(0,1),(1,1),(1,0)))], 1)
 
 
-def feather(tile_size, overlap, power, device):
+def feather(tile_size, overlap, power, device, mode="linear"):
+    if mode not in ("linear", "cosine"):
+        raise ValueError("feather_mode must be linear or cosine")
     axis = torch.ones(tile_size, device=device, dtype=torch.float32)
     if overlap:
         ramp = (torch.arange(overlap, device=device, dtype=torch.float32)+1)/(overlap+1)
-        axis[:overlap], axis[-overlap:] = ramp, ramp.flip(0)
+        if mode == "cosine":
+            ramp = .5-.5*torch.cos(torch.pi*ramp)
+        axis[:overlap] = ramp
+        # Minimum keeps the window symmetric even when tapers overlap.
+        axis[-overlap:] = torch.minimum(axis[-overlap:], ramp.flip(0))
     return (axis[:, None]*axis[None, :]).pow(power)[None, None]
 
 
 @torch.inference_mode()
 def tiled_inference(model, image, tile_size=512, overlap=58, feather_power=1., alpha=1., noise_map=None,
-                    return_weights=False, bayer_reflection=None, tile_batch_size=1):
+                    return_weights=False, bayer_reflection=None, tile_batch_size=1,
+                    grid_offset=(0, 0), grid_alignment=1, feather_mode="linear"):
     """image is BxCxHxW (C=3 RGB or C=4 packed Bayer); overlap is in pixels.
 
     Tile starts are separated by tile_size-overlap. The original image lies
@@ -67,6 +76,9 @@ def tiled_inference(model, image, tile_size=512, overlap=58, feather_power=1., a
     tile_batch_size optionally groups tiles along the model batch dimension;
     accumulation retains raster order. The backend/model must support that batch
     size and be checked for numerical parity; the default calls one tile at a time.
+    grid_offset is an integer or (y,x) in packed pixels. grid_alignment=16
+    keeps four-stage downsampling phases consistent, at a rounded-up overlap.
+    This cannot remove dependence on tile-wide pooled statistics.
     """
     if image.ndim != 4 or image.shape[1] not in (3, 4) or min(image.shape) < 1:
         raise ValueError("Expected nonempty Bx3xHxW RGB or Bx4xHxW packed Bayer")
@@ -79,17 +91,23 @@ def tiled_inference(model, image, tile_size=512, overlap=58, feather_power=1., a
     if bayer_reflection and (image.shape[1] != 4 or noise_map is not None):
         raise ValueError("Site-aware Bayer reflection requires unconditioned R/G1/B/G2 input")
     h, w = image.shape[-2:]
-    step, apron = tile_size-overlap, overlap
-    def extent(n):
-        return tile_size+max(0, (n+2*apron-tile_size+step-1)//step)*step
-    ph, pw = extent(h), extent(w)
+    if isinstance(grid_offset, int) and not isinstance(grid_offset, bool):
+        grid_offset = (grid_offset, grid_offset)
+    if not isinstance(grid_offset, (tuple, list)) or len(grid_offset) != 2:
+        raise ValueError("grid_offset must be an integer or (y,x) pair")
+    ys = tile_starts(h, tile_size, overlap, grid_offset[0], grid_alignment)
+    xs = tile_starts(w, tile_size, overlap, grid_offset[1], grid_alignment)
+    top, left = -ys[0], -xs[0]
+    ph, pw = ys[-1]+top+tile_size, xs[-1]+left+tile_size
+    effective_overlap = tile_size-((tile_size-overlap)//grid_alignment)*grid_alignment
+    padding = (left, pw-w-left, top, ph-h-top)
     pad = reflected_bayer_pad if bayer_reflection else reflected_pad
-    padded = pad(image, apron, pw-w-apron, apron, ph-h-apron)
-    conditioned = None if noise_map is None else reflected_pad(noise_map, apron, pw-w-apron, apron, ph-h-apron)
-    weight = feather(tile_size, overlap, feather_power, image.device)
+    padded = pad(image, *padding)
+    conditioned = None if noise_map is None else reflected_pad(noise_map, *padding)
+    weight = feather(tile_size, effective_overlap, feather_power, image.device, feather_mode)
     total = torch.zeros_like(padded, dtype=torch.float32)
     weights = torch.zeros((1, 1, ph, pw), device=image.device)
-    positions = ((y, x) for y in range(0, ph-tile_size+1, step) for x in range(0, pw-tile_size+1, step))
+    positions = ((y+top, x+left) for y in ys for x in xs)
     while locations := list(islice(positions, tile_batch_size)):
         tiles = [padded[..., y:y+tile_size, x:x+tile_size] for y, x in locations]
         tile = tiles[0] if len(tiles) == 1 else torch.cat(tiles, dim=0)
@@ -111,7 +129,7 @@ def tiled_inference(model, image, tile_size=512, overlap=58, feather_power=1., a
     # Only normalize the visible image. Dividing the reflected apron and the
     # rounded-up tile extent allocates a full padded result that is discarded.
     # The weighted sums and per-pixel arithmetic are otherwise unchanged.
-    visible = (..., slice(apron, apron+h), slice(apron, apron+w))
+    visible = (..., slice(top, top+h), slice(left, left+w))
     merged = total[visible]/weights[visible]
     out = alpha*merged+(1-alpha)*image
     if return_weights:

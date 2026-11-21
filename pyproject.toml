@@ -8,18 +8,29 @@ version = "0.1.0"
 description = "Experimental Bayer RAW denoising CLI and training tools"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["torch>=2.2", "numpy>=1.24", "rawpy>=0.19", "tifffile", "pyyaml", "tqdm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = ["numpy>=1.24", "rawpy>=0.19", "tifffile", "pyyaml", "tqdm"]
 
 [project.urls]
 Repository = "https://github.com/sndstone/rawdenoise-lab"
 
 [project.scripts]
 rawdenoise = "denoise_lab.cli:main"
-rawdenoise-demo = "denoise_lab.demo:main"
+rawdenoise-fetch = "denoise_lab.cli:fetch_main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pillow"]
-export = ["coremltools", "onnx", "onnxscript", "onnxruntime>=1.17"]
+torch = ["torch>=2.2"]
+train = ["torch>=2.2"]
+dev = ["torch>=2.2", "pytest>=8", "pillow"]
+coreml = ["coremltools"]
+export = ["torch>=2.2", "coremltools", "scikit-learn", "onnx", "onnxscript", "onnxruntime>=1.17"]
 onnx = ["onnxruntime>=1.17"]
 onnx-gpu = ["onnxruntime-gpu>=1.17"]
 directml = ["onnxruntime-directml>=1.17"]
@@ -28,6 +39,16 @@ nas = ["impacket>=0.13"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["denoise_lab*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Catch syntax errors and unambiguous name/control-flow errors.
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+# TODO: choose a license with the author before adding a license field/classifier.

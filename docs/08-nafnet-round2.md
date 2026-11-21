@@ -153,7 +153,7 @@ The original GPU runs used `scripts/run_cuda.py` and local orchestration
 - `phase_b.sh`, `side_eval.sh`, `eval_b.sh`: 48k runs, replicate, fine-tunes, scoring.
 
 On the Mac:
-- ANE sweep: `TMPDIR=/tmp/coreml_tmp PYTHONPATH=src:scripts /usr/bin/python3 scripts/probe_ane_sweep.py`.
+- ANE sweep: `TMPDIR=/tmp/coreml_tmp PYTHONPATH=src:scripts /usr/bin/python3 scripts/archive/probe_ane_sweep.py`.
 - Trained-weight Core ML gate: `scripts/coreml_identity_gate.py`.
 
-Decision tables: `scripts/summarize_nafnet_round.py --eval … --identity …`.
+Decision tables: `scripts/archive/summarize_nafnet_round.py --eval … --identity …`.

@@ -24,7 +24,15 @@ Input and output use the same camera white balance, sRGB rendering and exposure 
 | ![Fireworks, ISO 3200](examples/fireworks.jpg) | ![Night river, ISO 100, 16 s](examples/night_river.jpg) |
 | **ISO 3200, 1/15 s.** Bright fireworks and dark-sky example. | **ISO 100, 16 s.** Long-exposure river and buildings example. |
 
-Known limitations are visible here: clipped highlights can acquire a faint cyan fringe, and the defect pre-pass can remove isolated single-pixel stars (use `--no-prepass` for astrophotography).
+These examples predate highlight protection. The default `--highlights protect` now preserves input near sensor clipping to reduce denoising-induced colour fringes; clipped colour cannot be recovered, and noise is retained near highlights. The heuristic defect pre-pass can remove isolated single-pixel stars (use a body-specific dark map with `--prepass map`, or `--no-prepass` for astrophotography).
+
+### Experimental 2× RAW Super-Resolution (`PhotoSRv2`)
+
+An isolated clean-room 2× Bayer RAW-to-RAW super-resolution research track lives under `src/denoise_lab/sr/` alongside the frozen `r4_plain` denoiser (the production denoiser and CLI defaults are unchanged):
+
+- **Interactive comparison & architecture walkthrough:** open [`examples/sr_comparison/index.html`](examples/sr_comparison/index.html) locally in a browser to inspect the two-stage workflow, model layouts (`r4_plain` and `PhotoSRv2`), and 12 real RAW scenes (48 full-resolution regions across Hasselblad X2D II 100C, Hasselblad X1D II 50C, Sony ILCE-7M3, Sony RX100, and the three demo DNGs) with full-picture section navigation, interactive before/after slider, side-by-side comparison, and synchronized 1×–4× zoom.
+- **Sample JPEGs:** [`examples/sr_comparison/assets/`](examples/sr_comparison/assets/) contains the per-scene full frames and 1:1 `RAW (2× CFA)`, `Denoised (r4)`, and `PhotoSRv2` comparison crops.
+- **Training, benchmark & tests:** `scripts/sr_v2_train.py`, `scripts/sr_benchmark.py`, `scripts/sr_track_a_eval.py`, and `tests/test_raw_sr_v2.py`.
 
 ## Quick start
 
@@ -38,11 +46,11 @@ source .venv/bin/activate
 # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -e ".[onnx]"
 
-gh release download model-r4_plain-2026-10-30 --repo sndstone/rawdenoise-lab --pattern r4_plain_fp32.onnx --dir models
-rawdenoise examples/raw/sample_iso3200_mushroom.dng --model models/r4_plain_fp32.onnx
+rawdenoise fetch-model
+rawdenoise examples/raw/sample_iso3200_mushroom.dng --model r4_plain
 ```
 
-Without GitHub CLI, download `r4_plain_fp32.onnx` from the [model release page](https://github.com/sndstone/rawdenoise-lab/releases/tag/model-r4_plain-2026-10-30), create `models/` and place it there. The three small demo DNGs are already in `examples/raw/`.
+Alternatively, download `r4_plain_fp32.onnx` from the [model release page](https://github.com/sndstone/rawdenoise-lab/releases/tag/model-r4_plain-2026-10-30), create `models/` and place it there. The three small demo DNGs are already in `examples/raw/`.
 
 The command writes `examples/raw/sample_iso3200_mushroom_denoised.dng`. By default outputs go beside each input with `_denoised` added to the filename. Use `--output-dir outputs` to choose another directory. Existing files and inputs are never overwritten.
 
@@ -70,50 +78,76 @@ From the repository root:
 ```bash
 rawdenoise photo.3FR other.DNG --model models/r4_plain_fp32.onnx --output-dir outputs --device cpu
 rawdenoise photo.ARW --model models/r4_plain_weights.pt --strength 0.7
-rawdenoise photo.3FR --model models/r4_plain_fp32.onnx --format tiff
+rawdenoise photo.3FR --model models/r4_plain_fp16.mlpackage --format tiff
+rawdenoise photos/ --recursive --glob '*.DNG' --model r4_plain --output-dir outputs --skip-existing --report runs/batch.json
+rawdenoise photo.DNG --model r4_plain --strength 0.5 --chroma-strength 0.9
+rawdenoise --version
 rawdenoise --help
 ```
 
-Bayer inputs must be rawpy-readable 2×2 RGB Bayer RAWs (RGGB, BGGR, GRBG or GBRG). X-Trans and Foveon are unsupported. Only unconditioned models are supported. Successful decoding from another camera does not validate its denoising quality.
+Folder inputs detect common RAW extensions without regard to case. `--glob` adds a case-sensitive filter (quote it so your shell does not expand it); `--recursive` searches subdirectories. Generated `*_denoised` files are excluded from folder discovery. With `--output-dir`, folder-relative subdirectories are retained. Explicit file inputs remain supported, including RAW extensions outside the discovery list.
 
-**16-bit RGB TIFF is a separate experimental path.** It requires a three-channel `rgb_nafnet` PyTorch checkpoint with matching explicit color-space/ICC metadata; released Bayer weights cannot process RGB. No trained RGB weights or RGB denoising quality are provided. RGB inference preserves 16-bit codes through float32 normalization and rounded uint16 TIFF output, with no 8-bit conversion. See [RGB model, color contract and paired training recipe](docs/10-rgb-tiff.md).
+Existing outputs cause per-file failures by default; `--skip-existing` explicitly counts them as skipped. Inputs and outputs are never overwritten. Processing continues after a file fails, prints success/skip/failure counts, and exits non-zero if any file failed. `--report PATH.json` writes a new JSON file with a `files` list and `summary` counts. Each record includes status, input/output, camera, ISO, backend/device, elapsed seconds, model SHA-256, settings and warnings; failures also include an error. Metadata unavailable for failed or skipped inputs is `null`. Reports are never overwritten. Unknown model training scope, unvalidated cameras and ISO outside the registered training prior produce warnings, not rejection.
+
+Download models with the standard-library HTTPS downloader (no GitHub CLI needed):
 
 ```bash
-# Requires your own trained RGB checkpoint; this is not a shipped model.
-python scripts/train_rgb.py --manifest data/rgb/pairs.json --output runs/rgb/experimental.pt --device cpu
-rawdenoise photo.tif --model runs/rgb/experimental.pt --device cpu --rgb-color-space srgb
+rawdenoise fetch-model --name r4_plain --format onnx --dir models
+rawdenoise fetch-model --format pt
+rawdenoise fetch-model --format coreml
+# Equivalent standalone entry point:
+rawdenoise-fetch --format onnx
 ```
 
-RGB defaults to TIFF output and rejects DNG/NPY. ICC bytes, orientation and TIFF resolution are retained; unsupported color transforms and checkpoint mismatches fail. Untagged, unprofiled inputs need an explicit declaration of their actual encoding. Bayer CLI defaults and output formats remain unchanged.
+Downloads are verified against the release's `SHA256SUMS` before installation; ONNX and PT also have pinned hashes in the registry. Core ML archives are unpacked to `.mlpackage` directories. Existing models are refused. `--model r4_plain` resolves locally under `models/`, preferring ONNX, then PT, then Core ML; select a specific installed format with `--backend`. Inference never downloads implicitly. A custom `--dir` requires an explicit model path at inference. Package hashes in reports cover sorted relative filenames and file bytes, while single-file models use the file SHA-256. Downloaded checksums verify integrity; unpinned Core ML checksums depend on trust in the HTTPS release source.
+
+Inputs must be rawpy-readable 2×2 RGB Bayer RAWs (RGGB, BGGR, GRBG or GBRG). X-Trans and Foveon are unsupported. Only unconditioned models are supported. Successful decoding from another camera does not validate its denoising quality.
 
 | Backend | Install | Platforms and device selection |
 |---|---|---|
-| PyTorch `.pt` | `pip install -e .` | Windows, Linux, macOS; auto selects CUDA, then MPS, then CPU |
+| PyTorch `.pt` | `pip install -e '.[torch]'` | Windows, Linux, macOS; auto selects CUDA, then MPS, then CPU |
 | ONNX CPU `.onnx` | `pip install -e '.[onnx]'` | Windows, Linux, macOS |
 | ONNX CUDA `.onnx` | `pip install -e '.[onnx-gpu]'` | Windows/Linux with compatible NVIDIA CUDA libraries |
 | ONNX DirectML `.onnx` | `pip install -e '.[directml]'` | Windows |
-| Core ML `.mlpackage` | `pip install -e '.[export]'` | macOS with coremltools |
+| Core ML `.mlpackage` | `pip install -e '.[coreml]'` | macOS with coremltools |
 
-Choose one ONNX Runtime variant per environment. ONNX auto selects available providers in CUDA, DirectML, Core ML, CPU order. `--device cpu` forces CPU; ONNX and Core ML accept only `auto` or `cpu`. PyTorch also accepts device strings such as `cuda:0` or `mps`; install a suitable PyTorch build for your accelerator. **Torch is still required for preprocessing and tiling when using ONNX or Core ML.** `--backend` can override selection by model suffix.
+The base install no longer includes torch. Use `.[torch]` for `.pt` inference,
+`.[train]` for training, or `.[dev,onnx]` for development and tests. `.[export]`
+includes torch and the export tools; `.[coreml]` installs only the Core ML runtime.
+Existing environments with torch keep working. These extras also work with a
+regular install, for example `pip install 'denoise_lab[onnx]'` when distributed.
 
-`--strength` blends the complete processed result against the original, from 0 (preserve input) to 1 (full processing). `--no-prepass` disables hot/dead-pixel correction. `--overlap` controls tile overlap in packed pixels (default 60; twice that extent in sensor pixels).
+Core ML accepts `--compute-units all|cpu_and_ne|cpu_and_gpu|cpu_only`; the default is `all`, or `cpu_only` with `--device cpu`, and JSON reports record the resolved selection. This option is rejected for other backends; `--device cpu` conflicts with selections other than `cpu_only`.
 
-The default DNG output contains the visible sensor mosaic rounded/clipped to uint16, with source CFA layout, black/white levels, color matrix, camera white balance and orientation. This minimal writer does not preserve other EXIF, lens profiles, masked pixels, previews or signatures. Retain the original RAW. `--format tiff` renders a 16-bit sRGB preview using camera white balance without automatic brightening. `--format npy` saves the signed float32 normalized visible mosaic in the source CFA layout without metadata.
+Choose one ONNX Runtime variant per environment. ONNX auto selects available providers in CUDA, DirectML, Core ML, CPU order. `--device cpu` forces CPU; ONNX and Core ML accept only `auto` or `cpu`. PyTorch also accepts device strings such as `cuda:0` or `mps`; install a suitable PyTorch build for your accelerator. ONNX and Core ML use NumPy preprocessing and tiling; neither requires torch. `--backend` can override selection by model suffix.
 
-## Local demo app
+`--strength` blends the complete processed result against the original, from 0 (preserve input) to 1 (full processing). `--chroma-strength` defaults to the same value, reproducing the original blend exactly. Set it independently to adjust colour denoising: each packed Bayer cell is transformed using camera white balance into Y=(R+2G+B)/4, Cb=B−Y and Cr=R−Y, with G=(G1+G2)/2. Y and G1−G2 follow `--strength`; Cb/Cr follow `--chroma-strength`. This is a linear sensor-space blend before unpacking; it does not clip signed values. `--no-prepass` (or `--prepass off`) disables hot/dead-pixel correction. `--overlap` controls tile overlap in packed pixels (default 60; twice that extent in sensor pixels).
 
-The local browser demo imports one Bayer RAW photo, processes it on this computer,
-and exports a DNG mosaic or a rendered 16-bit TIFF. From the repository root:
+Calibrate a body-specific map from repeated dark frames (at least two per ISO/exposure/shutter setting):
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m denoise_lab.demo --model models/r4_plain_weights.pt
+PYTHONPATH=src python scripts/build_defect_map.py data/my_darks --shutter mechanical --output-dir calib/defect_maps
+rawdenoise photo.ARW --model models/r4_plain_weights.pt --defect-map calib/defect_maps/MODEL_SERIAL.npz --prepass map
+# Auto-lookup requires both model and serial in standard RAW metadata:
+rawdenoise photo.ARW --model models/r4_plain_weights.pt --defect-map-dir calib/defect_maps
 ```
 
-Open the local URL printed in the terminal, choose a RAW, select the export format,
-then process and download the result. The demo defaults to explicit CPU FP32 and
-requires trusted local PyTorch weights. The optional guarded Mac GPU mode is
-experimental; NPU prototypes failed fidelity and are not offered. See the
-[demo setup, import/export instructions and limitations](docs/13-demo-app.md).
+Dark directories can use a `manifest.json` list of `file`, `iso`, `exposure` (seconds or a rational), optional `shutter`, `model` and `serial`; otherwise settings come from standard TIFF/EXIF. Keep each set to one physical body. Unknown serials require explicit map selection. Maps and other generated calibration artifacts stay out of git.
+
+`--prepass auto` uses mapped correction when a map is supplied/matched; otherwise it keeps the existing heuristic. Available modes are `auto`, `map`, `heuristic`, `map+heuristic`, and `off`. Maps correct only listed sites using unlisted same-colour neighbours. Known identity/geometry mismatches and unobserved ISO/exposure settings are rejected; build separate shutter-mode maps. Darks cannot confirm dead photoresponse or long-exposure/temperature stability, and confidence is empirical support rather than a probability. Unmapped stars survive the map pre-pass; the neural model can still change them. See [calibration and evaluation details](docs/09-clean-targets-and-defects.md#calibrated-dark-frame-maps).
+
+`--highlights protect` (default, all backends) preserves input Bayer cells where any photosite reaches 98% of its normalized per-channel white level, including a one-packed-pixel border, then feathers over three more packed pixels. The input used for this protection includes enabled defect corrections, so known hot pixels are not restored. Within this footprint, output is capped at white and unclipped photosites stay below white. This final protection follows the strength blend (strength 0 still preserves input exactly). It retains input noise; `--highlights off` restores legacy processing. Inputs without near-clipped photosites are unchanged by this protection.
+
+Experimental seam controls are opt-in: `--align-tiles` aligns origins and steps to
+16 packed pixels (rounding overlap 60 up to 64), `--feather-mode cosine` changes
+the blending window, and `--tta-shift N` averages N evenly spaced diagonal tile
+grids. Shift averaging costs roughly N passes and does not guarantee phase
+invariance. Wider overlaps can also increase the tile count. See
+[tile-phase diagnostics](docs/05-evaluation.md#tile-phase-diagnostics).
+
+The default DNG output contains the visible sensor mosaic rounded/clipped to uint16, with source CFA layout, black/white levels, color matrix, camera white balance and orientation. `--metadata full` (the default) also preserves available standard camera/lens, ISO, exposure, date, artist/copyright and GPS metadata, plus DNG colour matrices, calibration and profile tags. GPS is retained when present; use `--metadata minimal` to omit capture metadata and reproduce the legacy writer. A bounded TIFF/EXIF reader supports TIFF-based RAWs without external tools; opaque proprietary metadata is unavailable.
+
+Full output identifies the rawdenoise version and processing, records the source filename, regenerates the raw-data ID and embeds a small approximate sRGB browsing preview (disable with `--no-dng-preview`). Visible-area export resets ActiveArea and default crop bounds to the output dimensions. OpcodeList1 is omitted because pre-demosaic operations may depend on removed pixels or repeat decoder corrections. OpcodeLists2/3 are preserved only when no sensor margins were removed. Other standard lens/profile tags are copied, but embedded extra profiles, masked pixels, maker notes, signatures, checksums and original previews are not preserved. Retain the original RAW and check results in your editor; preview colour and metadata support vary by application. `--format tiff` renders a 16-bit sRGB preview using camera white balance without automatic brightening. `--format npy` saves the signed float32 normalized visible mosaic in the source CFA layout without metadata.
 
 ## How it works
 
@@ -124,7 +158,7 @@ The model uses NAFNet (Nonlinear Activation Free Network), a neural image-restor
 - The released checkpoint targets X1D II data; other cameras and real noise conditions need independent validation.
 - Private training photographs are unavailable, so the complete training experiment cannot be reproduced from this checkout.
 - Synthetic scores and qualitative examples do not replace independent paired references or blind acceptance review.
-- Fine texture can be lost, clipped highlights can develop colour artifacts, and defect correction can remove isolated stars.
+- Fine texture can be lost, clipped colour cannot be recovered, and defect correction can remove isolated stars. Highlight protection reduces denoising-induced colour shifts by retaining noisy input near clipping; it does not guarantee artifact-free highlights or correct demosaicing/WB colour shifts.
 - Overlap blending does not guarantee tile-phase-independent neural predictions or eliminate all seams.
 - Output metadata is limited; preserve original files and inspect results before further processing.
 
@@ -137,6 +171,8 @@ The model uses NAFNet (Nonlinear Activation Free Network), a neural image-restor
 
 ## Research and docs
 
+See the [script catalog](scripts/README.md) for active commands and the historical archive.
+
 | Document | Scope |
 |---|---|
 | [01 — Deployment contract](docs/01-what-we-know.md) | Tensor layout, tiling and runtime interface |
@@ -148,9 +184,10 @@ The model uses NAFNet (Nonlinear Activation Free Network), a neural image-restor
 | [07 — Architecture study](docs/07-architecture-study.md) | Historical architecture experiments, superseded by later rounds |
 | [08 — Round 2](docs/08-nafnet-round2.md) | Historical capacity and training-length experiments |
 | [09 — Clean targets and defects](docs/09-clean-targets-and-defects.md) | Later training rounds, target preparation and defect handling |
-| [10 — RGB TIFF](docs/10-rgb-tiff.md) | Experimental three-channel model, 16-bit/color contract and independent paired training |
-| [11 — Precision and evaluation](docs/11-precision-and-evaluation.md) | Export precision, EMA compatibility and matched inference experiments |
-| [13 — Local demo app](docs/13-demo-app.md) | Browser RAW import, processing and DNG/16-bit TIFF export |
+| [10 — Rounds 5–7](docs/10-rounds-6-7.md) | Camera calibration, real-noise self-supervision, tools and negative results |
+| [11 — Capture protocol](docs/11-capture-protocol.md) | Tripod burst checklist and preview capture checker |
+| [12 — Burst alignment](docs/12-burst-alignment.md) | Sub-pixel registration, robust merge and usable-area results |
+| [13 — Physics noise](docs/13-physics-noise.md) | Banding, quantisation and shutter-profile noise synthesis |
 | [References](docs/references.md) | Papers and research resources |
 
 The code and configs retain exploratory experiments. Historical recipes are not the released model's training instructions. `scripts/train_arch_study.py` supports the later binned-target/defect/EMA experiments; `scripts/train.py` also provides the small smoke fixture below. `scripts/run_cuda.py` is optional research tooling requiring a separately prepared Docker/NVIDIA environment.
@@ -174,15 +211,6 @@ python scripts/export_onnx.py --checkpoint models/r4_plain_weights.pt --output m
 ```
 
 Dynamic height/width must be multiples of 16 for the four-stage model. Deployment uses 512 packed-pixel tiles.
-
-New exports default to fp32 computation to preserve input precision. Half-precision
-computation is an explicit approximation requiring low-ISO shadow and sensor-DN
-checks; see [precision guidance](docs/11-precision-and-evaluation.md). Existing
-fp16 release packages retain their original precision.
-
-Bayer tiling mirrors the sensor mosaic with its CFA-site offsets. Older per-plane
-reflection could introduce colored grids near reflected borders; updating weights
-alone does not correct an older host tiler. See [precision and runtime guidance](docs/11-precision-and-evaluation.md).
 
 ## License
 

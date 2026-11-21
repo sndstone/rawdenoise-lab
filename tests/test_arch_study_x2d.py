@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-spec = importlib.util.spec_from_file_location('arch_study_x2d', Path(__file__).resolve().parents[1]/'scripts/arch_study_x2d.py')
+spec = importlib.util.spec_from_file_location('arch_study_x2d', Path(__file__).resolve().parents[1]/'scripts/archive/arch_study_x2d.py')
 x2d = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(x2d)
 

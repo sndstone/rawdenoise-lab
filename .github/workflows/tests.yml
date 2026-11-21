@@ -1,18 +1,145 @@
 name: tests
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
 permissions:
   contents: read
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints/*.txt
+      - run: python -m pip install -c constraints/macos-arm64-py312.txt ruff==0.17.4
+      - run: python -m ruff check .
   cpu:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python: ['3.11', '3.12']
+    env:
+      PYTHONPATH: src
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
         with:
-          python-version: ${{ matrix.python }}
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints/*.txt
+      - run: python -m pip install -c constraints/macos-arm64-py312.txt -e '.[dev,onnx,nas]' onnx
+      - run: python -c 'import impacket'
+      - run: rawdenoise --help
+      - run: python -m pytest -q -rs tests/ --deselect=tests/test_inference.py::test_torch_onnx_parity --ignore=tests/test_export_coreml.py
+  macos-compatibility:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: macos-latest
+    env:
+      PYTHONPATH: src
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: python -m pip install -e '.[dev,onnx]' onnx
       - run: rawdenoise --help
-      - run: python -m pytest -q tests/
+      - run: python -m pytest -q -rs tests/ --deselect=tests/test_inference.py::test_torch_onnx_parity --ignore=tests/test_export_coreml.py
+  coreml-conversion:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+      REQUIRE_COREMLTOOLS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints/*.txt
+      - run: python -m pip install -c constraints/macos-arm64-py312.txt -e '.[dev,export]'
+      - run: python -c 'import coremltools, torch'
+      - run: python -m pytest -q -rs tests/test_export_coreml.py
+  onnx-parity:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints/*.txt
+      - run: python -m pip install -c constraints/macos-arm64-py312.txt -e '.[dev,onnx]' onnx
+      - run: python -c 'import onnx, onnxruntime'
+      - run: python -m pytest -q -rs tests/test_inference.py::test_torch_onnx_parity
+      - name: Export tiny deployment fixture
+        run: |
+          mkdir -p runs/torchfree
+          python - <<'PYTHON'
+          import torch
+          from denoise_lab.arch_registry import build_model
+          config = dict(width=2, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
+          torch.manual_seed(12)
+          model = build_model(config).eval()
+          with torch.no_grad():
+              for name, parameter in model.named_parameters():
+                  if name.endswith(('.beta', '.gamma')):
+                      parameter.fill_(.1)
+          torch.save(dict(model_config=config, model=model.state_dict()), 'runs/torchfree/tiny.pt')
+          PYTHON
+          python scripts/export_onnx.py --checkpoint runs/torchfree/tiny.pt --output runs/torchfree/tiny.onnx --precision fp32
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: tiny-onnx
+          path: runs/torchfree/tiny.onnx
+          retention-days: 1
+  torchfree:
+    needs: onnx-parity
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints/*.txt
+      - run: python -m pip install -c constraints/macos-arm64-py312.txt -e '.[onnx]' pytest
+      - run: python -c "import importlib.util; assert importlib.util.find_spec('torch') is None"
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: tiny-onnx
+          path: runs/torchfree
+      - run: rawdenoise --help
+      - run: python -m pytest -q -rs tests/test_np_pipeline.py -k numpy
+      - run: python tests/torchfree_smoke.py runs/torchfree/tiny.onnx runs/torchfree/smoke

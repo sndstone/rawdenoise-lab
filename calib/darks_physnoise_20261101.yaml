@@ -1,0 +1,1529 @@
+units: normalized
+source: dark frames 2026-11-01; K interim (no flats)
+cameras:
+  x1d2:
+    iso:
+      100: &id001
+        read_std: 6.218891323349685e-05
+        tukey_lambda: 0.030000000000000027
+        ppcc: 0.9987038457154375
+        row_std: 1.2497730034938679e-05
+        col_std: 6.169107347470962e-06
+        row_fixed_std: 6.7135086033426944e-06
+        col_fixed_std: 4.3351450970277105e-06
+        black_offset: 1.1489146586191581e-05
+        lag1_h: 0.0017640393042304585
+        lag1_v: -0.0010455374532436362
+        hot_density: 1.1444091796875e-05
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 8
+        physics:
+          read_variance: 4.077887288423845e-09
+          read_excess_kurtosis: 2.880711366454875
+          lag1_h: -0.0012093208291645843
+          lag1_v: -0.0013773628889820844
+          row_std: 1.0867960646839055e-05
+          col_std: 0.0
+          row_fixed_std: 4.626680668247419e-06
+          col_fixed_std: 3.145263161570171e-06
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 4.097442916465178e-09
+            excess_kurtosis: 1.4266262209658036
+            lag1_h: -0.0012093208291645843
+            lag1_v: -0.0013773628889820844
+            row_power: 1.1811256862124237e-10
+            col_power: 0.0
+            row_fixed_power: 2.1406174005934383e-11
+            col_fixed_power: 9.892680355530388e-12
+            spatial_variance: 5.794922148548441e-09
+            spatial_excess_kurtosis: 205.67655152080172
+        shutter: leaf
+        crop_size: 1024
+        K: 9.69e-06
+        K_source: 'interim: X1D II tripod bursts 2026-11-01 (ISO 3200 temporal 3.0e-4;
+          ISO 25600 ~6e-4) and docs/09 ISO 6400 NLF anchor; gain assumed flat above
+          6400'
+      200: &id002
+        read_std: 9.04432346765664e-05
+        tukey_lambda: 0.0050000000000000044
+        ppcc: 0.9979304241102736
+        row_std: 1.723922894367e-05
+        col_std: 6.377943922028729e-06
+        row_fixed_std: 9.1022379195493e-06
+        col_fixed_std: 5.475552955120021e-06
+        black_offset: 2.2978293172383155e-05
+        lag1_h: 0.0006624892057602691
+        lag1_v: -0.006867226217630234
+        hot_density: 1.239776611328125e-05
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 4
+        physics:
+          read_variance: 9.272120638441024e-09
+          read_excess_kurtosis: 4.149757603029573
+          lag1_h: -0.0008551906543369882
+          lag1_v: -0.0020133848473460223
+          row_std: 1.6027826338538924e-05
+          col_std: 6.285770935847654e-07
+          row_fixed_std: 3.506611478376153e-06
+          col_fixed_std: 4.855676176401559e-06
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 9.291676266482358e-09
+            excess_kurtosis: 2.0661515911138197
+            lag1_h: -0.0008551906543369882
+            lag1_v: -0.0020133848473460223
+            row_power: 2.5689121713836204e-10
+            col_power: 3.9510916257947097e-13
+            row_fixed_power: 1.2296324060279388e-11
+            col_fixed_power: 2.3577591130073663e-11
+            spatial_variance: 1.144872252294822e-08
+            spatial_excess_kurtosis: 996.2275279912762
+        shutter: leaf
+        crop_size: 1024
+        K: 1.938e-05
+        K_source: 'interim: X1D II tripod bursts 2026-11-01 (ISO 3200 temporal 3.0e-4;
+          ISO 25600 ~6e-4) and docs/09 ISO 6400 NLF anchor; gain assumed flat above
+          6400'
+      400: &id003
+        read_std: 0.0001591847980001559
+        tukey_lambda: 0.0
+        ppcc: 0.9966163110412547
+        row_std: 2.5793880110763235e-05
+        col_std: 9.805003350292566e-06
+        row_fixed_std: 1.626008249212224e-05
+        col_fixed_std: 1.208816250976947e-05
+        black_offset: 2.6808008701113684e-05
+        lag1_h: -0.006280224626755157
+        lag1_v: 0.0009797272107929086
+        hot_density: 2.6702880859375e-05
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 4
+        physics:
+          read_variance: 2.813330651872476e-08
+          read_excess_kurtosis: 6.50416885747061
+          lag1_h: -0.0018917064576380806
+          lag1_v: -0.001289632032938207
+          row_std: 2.3883618654837894e-05
+          col_std: 9.751724274595933e-07
+          row_fixed_std: 5.615218977212213e-06
+          col_fixed_std: 7.454210993810582e-06
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 2.8152862146766093e-08
+            excess_kurtosis: 3.247567762512456
+            lag1_h: -0.0018917064576380806
+            lag1_v: -0.001289632032938207
+            row_power: 5.704272400497207e-10
+            col_power: 9.50961263277436e-13
+            row_fixed_power: 3.1530684162044166e-11
+            col_fixed_power: 5.556526154024654e-11
+            spatial_variance: 3.3078193901491116e-08
+            spatial_excess_kurtosis: 2433.1659022871
+        shutter: leaf
+        crop_size: 1024
+        K: 3.876e-05
+        K_source: 'interim: X1D II tripod bursts 2026-11-01 (ISO 3200 temporal 3.0e-4;
+          ISO 25600 ~6e-4) and docs/09 ISO 6400 NLF anchor; gain assumed flat above
+          6400'
+      800: &id004
+        read_std: 0.0002870697870733353
+        tukey_lambda: -0.06
+        ppcc: 0.9952518930365947
+        row_std: 4.132881973847077e-05
+        col_std: 1.549133101332325e-05
+        row_fixed_std: 2.276039327058606e-05
+        col_fixed_std: 1.6575895039410828e-05
+        black_offset: 3.829715528730526e-05
+        lag1_h: 0.005646510347950559
+        lag1_v: 0.005723024664988044
+        hot_density: 3.528594970703125e-05
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 4
+        physics:
+          read_variance: 9.438194781563239e-08
+          read_excess_kurtosis: 8.956648973751166
+          lag1_h: -0.00043813509657105387
+          lag1_v: -0.0019520330501953465
+          row_std: 3.830905055162383e-05
+          col_std: 3.8280251572120523e-07
+          row_fixed_std: 7.13478348565167e-06
+          col_fixed_std: 1.3213488823628106e-05
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 9.440150344367372e-08
+            excess_kurtosis: 4.476469249636132
+            lag1_h: -0.00043813509657105387
+            lag1_v: -0.0019520330501953465
+            row_power: 1.46758335416687e-09
+            col_power: 1.465377660424836e-13
+            row_fixed_power: 5.090513538712779e-11
+            col_fixed_power: 1.7459628689214488e-10
+            spatial_variance: 1.0912096817457061e-07
+            spatial_excess_kurtosis: 2948.27580538396
+        shutter: leaf
+        crop_size: 1024
+        K: 7.752e-05
+        K_source: 'interim: X1D II tripod bursts 2026-11-01 (ISO 3200 temporal 3.0e-4;
+          ISO 25600 ~6e-4) and docs/09 ISO 6400 NLF anchor; gain assumed flat above
+          6400'
+      1600: &id005
+        read_std: 0.0005214988081873088
+        tukey_lambda: -0.08499999999999999
+        ppcc: 0.9950004961971795
+        row_std: 6.631204125201031e-05
+        col_std: 2.8110127235544065e-05
+        row_fixed_std: 3.7995135684119605e-05
+        col_fixed_std: 2.9240731134953346e-05
+        black_offset: 5.74457329309579e-05
+        lag1_h: -0.007115904978435136
+        lag1_v: -0.006866996651090279
+        hot_density: 4.482269287109375e-05
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 4
+        physics:
+          read_variance: 3.141717498959843e-07
+          read_excess_kurtosis: 8.953872459987851
+          lag1_h: -0.003150306572413067
+          lag1_v: -0.0033130650562051087
+          row_std: 6.011537743651522e-05
+          col_std: 3.0059600463656444e-06
+          row_fixed_std: 1.7064665071385504e-05
+          col_fixed_std: 2.4573800284837907e-05
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 3.141913055240256e-07
+            excess_kurtosis: 4.476378945697994
+            lag1_h: -0.003150306572413067
+            lag1_v: -0.0033130650562051087
+            row_power: 3.6138586043346834e-09
+            col_power: 9.035795800346548e-12
+            row_fixed_power: 2.912027939985644e-10
+            col_fixed_power: 6.038716604390996e-10
+            spatial_variance: 3.730063163207338e-07
+            spatial_excess_kurtosis: 5047.812511322807
+        shutter: leaf
+        crop_size: 1024
+        K: 0.00015504
+        K_source: 'interim: X1D II tripod bursts 2026-11-01 (ISO 3200 temporal 3.0e-4;
+          ISO 25600 ~6e-4) and docs/09 ISO 6400 NLF anchor; gain assumed flat above
+          6400'
+      3200: &id006
+        read_std: 0.0009482042454078744
+        tukey_lambda: -0.04999999999999999
+        ppcc: 0.9957101391444401
+        row_std: 0.00011574323172880099
+        col_std: 4.844048224313021e-05
+        row_fixed_std: 6.477197892309168e-05
+        col_fixed_std: 4.573037187856399e-05
+        black_offset: 6.893487951714945e-05
+        lag1_h: -0.0038941989121942275
+        lag1_v: -0.0029235075658518963
+        hot_density: 4.57763671875e-05
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 4
+        physics:
+          read_variance: 1.0434204123974261e-06
+          read_excess_kurtosis: 9.66761068332582
+          lag1_h: -0.0031813348083384596
+          lag1_v: -0.002218550373456578
+          row_std: 0.00010525289730347591
+          col_std: 3.9987021678907935e-06
+          row_fixed_std: 2.9553571057217057e-05
+          col_fixed_std: 3.915958368556888e-05
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 1.0434399680254675e-06
+            excess_kurtosis: 4.8336241576440235
+            lag1_h: -0.0031813348083384596
+            lag1_v: -0.002218550373456578
+            row_power: 1.1078172390776046e-08
+            col_power: 1.5989619027494535e-11
+            row_fixed_power: 8.734135622339778e-10
+            col_fixed_power: 1.5334729944270723e-09
+            spatial_variance: 1.2959707664769062e-06
+            spatial_excess_kurtosis: 7579.620520167011
+        shutter: leaf
+        crop_size: 1024
+        K: 0.00031008
+        K_source: 'interim: X1D II tripod bursts 2026-11-01 (ISO 3200 temporal 3.0e-4;
+          ISO 25600 ~6e-4) and docs/09 ISO 6400 NLF anchor; gain assumed flat above
+          6400'
+      6400: &id007
+        read_std: 0.0009521551127671064
+        tukey_lambda: -0.04999999999999999
+        ppcc: 0.9956740001369353
+        row_std: 0.00011511708916874012
+        col_std: 4.767098453700775e-05
+        row_fixed_std: 5.380445407782472e-05
+        col_fixed_std: 4.599113174475213e-05
+        black_offset: 8.097112832173115e-05
+        lag1_h: -0.005819792287707046
+        lag1_v: 0.00045005074109552855
+        hot_density: 2.86102294921875e-05
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 7
+        physics:
+          read_variance: 1.0454791692840897e-06
+          read_excess_kurtosis: 8.864598652578737
+          lag1_h: -0.0014538304467781003
+          lag1_v: -0.003284317974987314
+          row_std: 0.00010473343521531801
+          col_std: 0.0
+          row_fixed_std: 2.7944255116894873e-05
+          col_fixed_std: 3.960158204490993e-05
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 1.045498724912131e-06
+            excess_kurtosis: 4.4321335189210025
+            lag1_h: -0.0014538304467781003
+            lag1_v: -0.003284317974987314
+            row_power: 1.0969092452001214e-08
+            col_power: 0.0
+            row_fixed_power: 7.808813940381054e-10
+            col_fixed_power: 1.5682853004597326e-09
+            spatial_variance: 1.3109208947963073e-06
+            spatial_excess_kurtosis: 7992.536898417602
+        shutter: leaf
+        crop_size: 1024
+        K: 0.00062016
+        K_source: 'interim: X1D II tripod bursts 2026-11-01 (ISO 3200 temporal 3.0e-4;
+          ISO 25600 ~6e-4) and docs/09 ISO 6400 NLF anchor; gain assumed flat above
+          6400'
+      12800: &id008
+        read_std: 0.00095137617894438
+        tukey_lambda: -0.06499999999999997
+        ppcc: 0.9964636502866097
+        row_std: 0.00011608136689496478
+        col_std: 5.3349796500566234e-05
+        row_fixed_std: 7.177811974718049e-05
+        col_fixed_std: 4.866456532012328e-05
+        black_offset: 9.191317268953264e-05
+        lag1_h: 0.005262554579331376
+        lag1_v: -0.01166013215588576
+        hot_density: 0.00010395050048828125
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 3
+        physics:
+          read_variance: 1.0494563856512027e-06
+          read_excess_kurtosis: 8.99040174497647
+          lag1_h: -0.0012822137162347305
+          lag1_v: -0.002925526797922768
+          row_std: 0.00010293095324405112
+          col_std: 0.0
+          row_fixed_std: 3.0301174728261726e-05
+          col_fixed_std: 4.0854863326110896e-05
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 1.049475941279244e-06
+            excess_kurtosis: 4.495033349321515
+            lag1_h: -0.0012822137162347305
+            lag1_v: -0.002925526797922768
+            row_power: 1.0594781135729037e-08
+            col_power: 0.0
+            row_fixed_power: 9.18161189912647e-10
+            col_fixed_power: 1.6691198573952011e-09
+            spatial_variance: 1.343356083923802e-06
+            spatial_excess_kurtosis: 9980.882070531978
+        shutter: leaf
+        crop_size: 1024
+        K: 0.00062016
+        K_source: 'interim: X1D II tripod bursts 2026-11-01 (ISO 3200 temporal 3.0e-4;
+          ISO 25600 ~6e-4) and docs/09 ISO 6400 NLF anchor; gain assumed flat above
+          6400'
+      25600: &id009
+        read_std: 0.000951080157953025
+        tukey_lambda: -0.06999999999999998
+        ppcc: 0.9945898619905814
+        row_std: 0.00011896638561121109
+        col_std: 5.3564315739306436e-05
+        row_fixed_std: 5.121988198959125e-05
+        col_fixed_std: 4.493241298387744e-05
+        black_offset: 8.999831492516737e-05
+        lag1_h: 0.0014541916607098981
+        lag1_v: 0.000726304723754739
+        hot_density: 2.384185791015625e-05
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 8
+        physics:
+          read_variance: 1.0482261063725613e-06
+          read_excess_kurtosis: 9.553376022908452
+          lag1_h: -0.0010875893782549893
+          lag1_v: -0.002810104993364943
+          row_std: 0.00010624282609274558
+          col_std: 5.891419112539662e-06
+          row_fixed_std: 2.979586396264855e-05
+          col_fixed_std: 4.111297227230709e-05
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 1.0482456620006027e-06
+            excess_kurtosis: 4.776509789162382
+            lag1_h: -0.0010875893782549893
+            lag1_v: -0.002810104993364943
+            row_power: 1.1287538096173381e-08
+            col_power: 3.470881915959762e-11
+            row_fixed_power: 8.877935092806585e-10
+            col_fixed_power: 1.690276489063491e-09
+            spatial_variance: 1.3276705141819494e-06
+            spatial_excess_kurtosis: 9246.834252976269
+        shutter: leaf
+        crop_size: 1024
+        K: 0.00062016
+        K_source: 'interim: X1D II tripod bursts 2026-11-01 (ISO 3200 temporal 3.0e-4;
+          ISO 25600 ~6e-4) and docs/09 ISO 6400 NLF anchor; gain assumed flat above
+          6400'
+    note: leaf shutter
+    shutters:
+      leaf:
+        iso:
+          100: *id001
+          200: *id002
+          400: *id003
+          800: *id004
+          1600: *id005
+          3200: *id006
+          6400: *id007
+          12800: *id008
+          25600: *id009
+    shutter: leaf
+  x1d2_electronic:
+    iso:
+      100: &id010
+        read_std: 6.136309308377314e-05
+        tukey_lambda: 0.020000000000000018
+        ppcc: 0.9979709578298231
+        row_std: 1.2161444700738391e-05
+        col_std: 5.372499423633837e-06
+        row_fixed_std: 4.576091677713765e-06
+        col_fixed_std: 2.8581798654520654e-06
+        black_offset: 1.892330025960965e-05
+        lag1_h: -0.00048644679826538855
+        lag1_v: 0.0022422066100823285
+        hot_density: 3.814697265625e-06
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 17
+        physics:
+          read_variance: 4.0145164670779755e-09
+          read_excess_kurtosis: 2.9584147888331764
+          lag1_h: -0.001792821343524424
+          lag1_v: -0.0021506054967968995
+          row_std: 1.0870412013754348e-05
+          col_std: 1.9581473637216863e-07
+          row_fixed_std: 3.4885995462719185e-06
+          col_fixed_std: 2.5194412321670036e-06
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 4.034072095119308e-09
+            excess_kurtosis: 1.4648867995927528
+            lag1_h: -0.001792821343524424
+            lag1_v: -0.0021506054967968995
+            row_power: 1.1816585734877483e-10
+            col_power: 3.83434109805019e-14
+            row_fixed_power: 1.2170326794248635e-11
+            col_fixed_power: 6.3475841223431894e-12
+            spatial_variance: 5.449073591301545e-09
+            spatial_excess_kurtosis: 5.897792857471696
+        shutter: electronic
+        crop_size: 1024
+        K: 9.69e-06
+        K_source: 'UNVERIFIED: assumed equal to leaf shutter; electronic read noise
+          differs, gain unknown'
+      800: &id011
+        read_std: 0.0003402971058844416
+        tukey_lambda: -0.06999999999999998
+        ppcc: 0.9949325362879602
+        row_std: 4.878261795563635e-05
+        col_std: 2.1479257897015598e-05
+        row_fixed_std: 1.6933469683509586e-05
+        col_fixed_std: 1.1381236298181072e-05
+        black_offset: 2.1446406960890962e-05
+        lag1_h: 0.00181341806249259
+        lag1_v: 0.005113114986831276
+        hot_density: 3.814697265625e-06
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 10
+        physics:
+          read_variance: 1.331567356542064e-07
+          read_excess_kurtosis: 9.33958643409059
+          lag1_h: -0.0011101964494634536
+          lag1_v: -0.0015715583492268497
+          row_std: 4.373792763180937e-05
+          col_std: 1.988075140593882e-07
+          row_fixed_std: 5.915298705465928e-06
+          col_fixed_std: 8.31453048483114e-06
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 1.3317629128224773e-07
+            excess_kurtosis: 4.6684218784234925
+            lag1_h: -0.0011101964494634536
+            lag1_v: -0.0015715583492268497
+            row_power: 1.9130063135253934e-09
+            col_power: 3.9524427646473843e-14
+            row_fixed_power: 3.4990758774886886e-11
+            col_fixed_power: 6.913141718318637e-11
+            spatial_variance: 1.3786124990791182e-07
+            spatial_excess_kurtosis: 5.63854292022126
+        shutter: electronic
+        crop_size: 1024
+        K: 7.752e-05
+        K_source: 'UNVERIFIED: assumed equal to leaf shutter; electronic read noise
+          differs, gain unknown'
+      3200: &id012
+        read_std: 0.0006159455797416574
+        tukey_lambda: -0.06
+        ppcc: 0.9956280937070303
+        row_std: 8.205418005955937e-05
+        col_std: 3.51448074926451e-05
+        row_fixed_std: 2.7828597095044837e-05
+        col_fixed_std: 1.973721586432193e-05
+        black_offset: 2.604206559536759e-05
+        lag1_h: -0.0057309485450942384
+        lag1_v: -0.004357153031057201
+        hot_density: 5.7220458984375e-06
+        code_step: 1.5318862114922102e-05
+        black_dn: 256.0
+        white_dn: 65535.0
+        frames: 10
+        physics:
+          read_variance: 4.394039099413845e-07
+          read_excess_kurtosis: 8.708458258749127
+          lag1_h: -0.0022684604206121813
+          lag1_v: -0.002260437860224668
+          row_std: 7.420677596631699e-05
+          col_std: 4.97416249792853e-06
+          row_fixed_std: 7.69563414784417e-06
+          col_fixed_std: 1.491998694128759e-05
+          code_step_dn: 1.0
+          black_dn: 256.0
+          white_dn: 65535.0
+          statistics:
+            variance: 4.394234655694258e-07
+            excess_kurtosis: 4.353841584974629
+            lag1_h: -0.0022684604206121813
+            lag1_v: -0.002260437860224668
+            row_power: 5.50664559931516e-09
+            col_power: 2.474229255579859e-11
+            row_fixed_power: 5.922278493746528e-11
+            col_fixed_power: 2.2260601032819224e-10
+            spatial_variance: 4.539276493357731e-07
+            spatial_excess_kurtosis: 6.027789984599371
+        shutter: electronic
+        crop_size: 1024
+        K: 0.00031008
+        K_source: 'UNVERIFIED: assumed equal to leaf shutter; electronic read noise
+          differs, gain unknown'
+    shutters:
+      electronic:
+        iso:
+          100: *id010
+          800: *id011
+          3200: *id012
+    shutter: electronic
+  a7m3:
+    iso:
+      50: &id013
+        read_std: 7.112304055914196e-05
+        tukey_lambda: -0.09
+        ppcc: 0.9886616152535038
+        row_std: 8.519336501690427e-06
+        col_std: 3.536190615422059e-06
+        row_fixed_std: 3.3644173512688206e-06
+        col_fixed_std: 2.935854665822876e-06
+        black_offset: 4.489942528735632e-06
+        lag1_h: 0.10157695141328445
+        lag1_v: 0.047589031029879325
+        hot_density: 0.0
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 15
+        physics:
+          read_variance: 5.336874297350877e-09
+          read_excess_kurtosis: 11.76997080722416
+          lag1_h: 0.10973527645055355
+          lag1_v: 0.05066592710350452
+          row_std: 7.678767926786996e-06
+          col_std: 4.84191544333484e-07
+          row_fixed_std: 2.0471816888780358e-06
+          col_fixed_std: 2.3449231554499363e-06
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 5.6677083238575874e-09
+            excess_kurtosis: 5.215958988672256
+            lag1_h: 0.10973527645055355
+            lag1_v: 0.05066592710350452
+            row_power: 5.896347687345267e-11
+            col_power: 2.3444145160404416e-13
+            row_fixed_power: 4.190952867277527e-12
+            col_fixed_power: 5.498664604965286e-12
+            spatial_variance: 5.758366508947032e-09
+            spatial_excess_kurtosis: 6.343928587645667
+        shutter: mechanical
+        crop_size: 1024
+        K: 1.3500000000000001e-05
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      100: &id014
+        read_std: 7.182289403628717e-05
+        tukey_lambda: -0.07499999999999998
+        ppcc: 0.990926403855606
+        row_std: 1.0089721456419765e-05
+        col_std: 5.370237818053529e-06
+        row_fixed_std: 3.6686440038387193e-06
+        col_fixed_std: 2.870422537990411e-06
+        black_offset: 6.734913793103448e-06
+        lag1_h: 0.11180587183537424
+        lag1_v: 0.04515430434661451
+        hot_density: 2.86102294921875e-06
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 5.562933006385403e-09
+          read_excess_kurtosis: 12.419054053829868
+          lag1_h: 0.11080895777756843
+          lag1_v: 0.050432211358149154
+          row_std: 8.35107934813095e-06
+          col_std: 0.0
+          row_fixed_std: 1.959391483014793e-06
+          col_fixed_std: 2.3957481619611104e-06
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 5.893767032892113e-09
+            excess_kurtosis: 5.530084998149087
+            lag1_h: 0.11080895777756843
+            lag1_v: 0.050432211358149154
+            row_power: 6.974052627877924e-11
+            col_power: 0.0
+            row_fixed_power: 3.8392149837109096e-12
+            col_fixed_power: 5.739609255540038e-12
+            spatial_variance: 5.993857414687817e-09
+            spatial_excess_kurtosis: 6.461821120905977
+        shutter: mechanical
+        crop_size: 1024
+        K: 1.3500000000000001e-05
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      200: &id015
+        read_std: 0.00011899922399320906
+        tukey_lambda: -0.16999999999999998
+        ppcc: 0.9921265291025191
+        row_std: 1.6799624430487158e-05
+        col_std: 7.939612369813896e-06
+        row_fixed_std: 5.568499923708844e-06
+        col_fixed_std: 4.698163976668483e-06
+        black_offset: 1.3469827586206896e-05
+        lag1_h: 0.043652691868662184
+        lag1_v: 0.03216007033247708
+        hot_density: 3.814697265625e-06
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 1.744591667035773e-08
+          read_excess_kurtosis: 19.761970584722715
+          lag1_h: 0.04877831995218162
+          lag1_v: 0.0306818712141703
+          row_std: 1.4789361384253447e-05
+          col_std: 7.747968975674046e-07
+          row_fixed_std: 1.7928615737851532e-06
+          col_fixed_std: 4.027819252821095e-06
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 1.777675069686444e-08
+            excess_kurtosis: 9.516419824721169
+            lag1_h: 0.04877831995218162
+            lag1_v: 0.0306818712141703
+            row_power: 2.1872521015404703e-10
+            col_power: 6.003102324800752e-13
+            row_fixed_power: 3.2143526227553766e-12
+            col_fixed_power: 1.6223327933396285e-11
+            spatial_variance: 1.804463579049984e-08
+            spatial_excess_kurtosis: 10.897576072631994
+        shutter: mechanical
+        crop_size: 1024
+        K: 2.7000000000000002e-05
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      400: &id016
+        read_std: 0.00021417584933088393
+        tukey_lambda: -0.175
+        ppcc: 0.9930936438967182
+        row_std: 2.9893714753366394e-05
+        col_std: 1.3569608922849535e-05
+        row_fixed_std: 8.891255004528986e-06
+        col_fixed_std: 7.421584470675381e-06
+        black_offset: 6.734913793103453e-06
+        lag1_h: 0.013698958364204237
+        lag1_v: 0.018559512374126157
+        hot_density: 5.7220458984375e-06
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 6.181394901353776e-08
+          read_excess_kurtosis: 23.76212305293324
+          lag1_h: 0.018964798287926805
+          lag1_v: 0.012827269583649518
+          row_std: 2.651398158558581e-05
+          col_std: 0.0
+          row_fixed_std: 0.0
+          col_fixed_std: 5.990840375007981e-06
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 6.214478304004447e-08
+            excess_kurtosis: 11.754881178912303
+            lag1_h: 0.018964798287926805
+            lag1_v: 0.012827269583649518
+            row_power: 7.029912195207836e-10
+            col_power: 0.0
+            row_fixed_power: 0.0
+            col_fixed_power: 3.5890168398825764e-11
+            spatial_variance: 6.318801542659374e-08
+            spatial_excess_kurtosis: 13.40799978595943
+        shutter: mechanical
+        crop_size: 1024
+        K: 5.4000000000000005e-05
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      800: &id017
+        read_std: 0.00011038723391484082
+        tukey_lambda: -0.245
+        ppcc: 0.9897710659455503
+        row_std: 1.4684682398159607e-05
+        col_std: 8.452532968242105e-06
+        row_fixed_std: 5.065129246366122e-06
+        col_fixed_std: 3.998713440694587e-06
+        black_offset: 1.3469827586206896e-05
+        lag1_h: 0.0408292772651083
+        lag1_v: 0.026384744085646554
+        hot_density: 1.71661376953125e-05
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 1.828427190773217e-08
+          read_excess_kurtosis: 43.913416591816265
+          lag1_h: 0.05083316149987468
+          lag1_v: 0.027489671039970354
+          row_std: 1.187360438318709e-05
+          col_std: 0.0
+          row_fixed_std: 2.3417059564607584e-06
+          col_fixed_std: 3.175736978514907e-06
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 1.861510593423888e-08
+            excess_kurtosis: 21.18300969114736
+            lag1_h: 0.05083316149987468
+            lag1_v: 0.027489671039970354
+            row_power: 1.409824810484397e-10
+            col_power: 0.0
+            row_fixed_power: 5.483586786523796e-12
+            col_fixed_power: 1.008530535670699e-11
+            spatial_variance: 1.915723738470338e-08
+            spatial_excess_kurtosis: 23.72647948022508
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.00010800000000000001
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      1600: &id018
+        read_std: 0.00020184050085194017
+        tukey_lambda: -0.26
+        ppcc: 0.9919846697350725
+        row_std: 2.4881427131071985e-05
+        col_std: 1.2865113133762998e-05
+        row_fixed_std: 7.983314557067171e-06
+        col_fixed_std: 6.889361820102137e-06
+        black_offset: 1.3469827586206896e-05
+        lag1_h: 0.012039893856569617
+        lag1_v: 0.008438401294040904
+        hot_density: 2.86102294921875e-05
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 6.748680232346528e-08
+          read_excess_kurtosis: 47.9700664793343
+          lag1_h: 0.01842392059302052
+          lag1_v: 0.01083019961565216
+          row_std: 2.1190148332076906e-05
+          col_std: 0.0
+          row_fixed_std: 1.5011425277190883e-06
+          col_fixed_std: 5.572085239351592e-06
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 6.7817636349972e-08
+            excess_kurtosis: 23.751577904165995
+            lag1_h: 0.01842392059302052
+            lag1_v: 0.01083019961565216
+            row_power: 4.490223863354216e-10
+            col_power: 0.0
+            row_fixed_power: 2.2534288885268536e-12
+            col_fixed_power: 3.104813391459989e-11
+            spatial_variance: 7.006766027297462e-08
+            spatial_excess_kurtosis: 26.263311014703362
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.00021600000000000002
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      3200: &id019
+        read_std: 0.0003799928576572558
+        tukey_lambda: -0.26
+        ppcc: 0.9907492329913151
+        row_std: 4.422506282562758e-05
+        col_std: 2.4165862636953965e-05
+        row_fixed_std: 1.4803179958657062e-05
+        col_fixed_std: 1.1715967996180727e-05
+        black_offset: 2.0204741379310338e-05
+        lag1_h: 0.0014405825658539572
+        lag1_v: -0.002088008485836059
+        hot_density: 3.24249267578125e-05
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 2.4846504237431817e-07
+          read_excess_kurtosis: 53.96199984259701
+          lag1_h: 0.005374164896340287
+          lag1_v: 0.0039302327687823066
+          row_std: 3.730190049584863e-05
+          col_std: 3.3692287546206704e-06
+          row_fixed_std: 5.073021113195791e-06
+          col_fixed_std: 9.0533757030465e-06
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 2.4879587640082486e-07
+            excess_kurtosis: 26.909291095885017
+            lag1_h: 0.005374164896340287
+            lag1_v: 0.0039302327687823066
+            row_power: 1.3914317806021921e-09
+            col_power: 1.1351702400962753e-11
+            row_fixed_power: 2.5735543214930267e-11
+            col_fixed_power: 8.196361162051271e-11
+            spatial_variance: 2.580075728472718e-07
+            spatial_excess_kurtosis: 29.495416126864157
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.00043200000000000004
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      6400: &id020
+        read_std: 0.0007093342508503858
+        tukey_lambda: -0.27999999999999997
+        ppcc: 0.990394462479648
+        row_std: 8.787152600535762e-05
+        col_std: 4.277304522996454e-05
+        row_fixed_std: 2.6104651688205844e-05
+        col_fixed_std: 2.1320364721088667e-05
+        black_offset: 2.6939655172413803e-05
+        lag1_h: -0.00032004174061508106
+        lag1_v: -0.006697002257983737
+        hot_density: 2.765655517578125e-05
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 8.999651629881424e-07
+          read_excess_kurtosis: 59.28798414367352
+          lag1_h: 0.003474101142946333
+          lag1_v: 0.0015476307914042912
+          row_std: 7.67114336226666e-05
+          col_std: 0.0
+          row_fixed_std: 0.0
+          col_fixed_std: 1.6328925070138103e-05
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 9.002959970146491e-07
+            excess_kurtosis: 29.622209289691035
+            lag1_h: 0.003474101142946333
+            lag1_v: 0.0015476307914042912
+            row_power: 5.884644048444785e-09
+            col_power: 0.0
+            row_fixed_power: 0.0
+            col_fixed_power: 2.666337939461846e-10
+            spatial_variance: 9.34715356014701e-07
+            spatial_excess_kurtosis: 32.63456585490261
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.0008640000000000001
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      12800: &id021
+        read_std: 0.0013271773116688514
+        tukey_lambda: -0.295
+        ppcc: 0.9884163502500268
+        row_std: 0.000153710523698895
+        col_std: 8.524248169382335e-05
+        row_fixed_std: 4.931775395772803e-05
+        col_fixed_std: 4.217787298782792e-05
+        black_offset: 5.3879310344827606e-05
+        lag1_h: -0.0008091839580204603
+        lag1_v: -0.0014632449504894493
+        hot_density: 3.910064697265625e-05
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 3.3205913137609746e-06
+          read_excess_kurtosis: 64.58713073505297
+          lag1_h: 0.0029320749343147703
+          lag1_v: 0.005127617331926182
+          row_std: 0.0001289727748392859
+          col_std: 1.7713668737891369e-06
+          row_fixed_std: 0.0
+          col_fixed_std: 2.9993554661304173e-05
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 3.3209221477874813e-06
+            excess_kurtosis: 32.28713143893307
+            lag1_h: 0.0029320749343147703
+            lag1_v: 0.005127617331926182
+            row_power: 1.663397664974514e-08
+            col_power: 3.1377406015574998e-12
+            row_fixed_power: 0.0
+            col_fixed_power: 8.996133212206413e-10
+            spatial_variance: 3.4600500751618447e-06
+            spatial_excess_kurtosis: 36.379063998593494
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.0017280000000000002
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      25600: &id022
+        read_std: 0.0024652769676699582
+        tukey_lambda: -0.27499999999999997
+        ppcc: 0.9893003306635578
+        row_std: 0.0002826136690833668
+        col_std: 0.00015355461651532097
+        row_fixed_std: 0.00010347683718984148
+        col_fixed_std: 8.615804489140704e-05
+        black_offset: 2.020474137931033e-05
+        lag1_h: -0.0028361257918011465
+        lag1_v: -0.004308345003223657
+        hot_density: 2.956390380859375e-05
+        code_step: 6.300800201625606e-05
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 1.1549424461759654e-05
+          read_excess_kurtosis: 58.64767997925481
+          lag1_h: 0.0013747438112370405
+          lag1_v: 0.008272756297651243
+          row_std: 0.0002380612864770456
+          col_std: 8.132145499207254e-06
+          row_fixed_std: 4.4331520524940845e-05
+          col_fixed_std: 6.57303214097674e-05
+          code_step_dn: 1.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 1.1549755295786161e-05
+            excess_kurtosis: 29.322160094650002
+            lag1_h: 0.0013747438112370405
+            lag1_v: 0.008272756297651243
+            row_power: 5.667317611910597e-08
+            col_power: 6.613179042027679e-11
+            row_fixed_power: 1.9652837120532515e-09
+            col_fixed_power: 4.320475152631325e-09
+            spatial_variance: 1.2084226990888357e-05
+            spatial_excess_kurtosis: 33.44541046484505
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.0034560000000000003
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+      65535: &id023
+        read_std: 0.017190390268006776
+        tukey_lambda: 0.07
+        ppcc: 0.994406519190885
+        row_std: 0.001862812272002004
+        col_std: 0.0009084612114043681
+        row_fixed_std: 0.0006196733501625957
+        col_fixed_std: 0.000582198060247383
+        black_offset: -4.1852678571428945e-05
+        lag1_h: 0.06333167979479666
+        lag1_v: 0.057634127379343106
+        hot_density: 0.0
+        code_step: 6.510840549514942e-05
+        black_dn: 1024.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 0.00030852846786875976
+          read_excess_kurtosis: 2.809002609880768
+          lag1_h: 0.07833164089170953
+          lag1_v: 0.0783168656833637
+          row_std: 0.001633873550547628
+          col_std: 0.00011346532238466702
+          row_fixed_std: 0.0
+          col_fixed_std: 0.00046272668442443656
+          code_step_dn: 1.0
+          black_dn: 1024.0
+          white_dn: 16383.0
+          statistics:
+            variance: 0.00030852882112746526
+            excess_kurtosis: 1.4044980886953127
+            lag1_h: 0.07833164089170953
+            lag1_v: 0.0783168656833637
+            row_power: 2.669542779179112e-06
+            col_power: 1.2874379383856417e-08
+            row_fixed_power: 0.0
+            col_fixed_power: 2.141159844784321e-07
+            spatial_variance: 0.0003283853929595212
+            spatial_excess_kurtosis: 2.143235145674927
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.0184
+        K_source: 'interim: A7 III tripod bursts 2026-11-01 (temporal 6400 1.1e-3,
+          25600 3.4e-3, top extended 1.84e-2) and benchmark blind fits'
+    processed_isos:
+    - 65535
+    shutters:
+      mechanical:
+        iso:
+          50: *id013
+          100: *id014
+          200: *id015
+          400: *id016
+          800: *id017
+          1600: *id018
+          3200: *id019
+          6400: *id020
+          12800: *id021
+          25600: *id022
+          65535: *id023
+    shutter: mechanical
+  a5100:
+    iso:
+      100: &id024
+        read_std: 0.0002568014079093246
+        tukey_lambda: 0.18
+        ppcc: 0.9971062998111921
+        row_std: 2.6504320398855175e-05
+        col_std: 1.4877628846771888e-05
+        row_fixed_std: 2.359327115434319e-05
+        col_fixed_std: 1.631766020323752e-05
+        black_offset: 5.3879310344827585e-05
+        lag1_h: 0.18655505186594207
+        lag1_v: 0.005588826183447561
+        hot_density: 0.0
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 10
+        physics:
+          read_variance: 3.7028571309454196e-08
+          read_excess_kurtosis: 0.0
+          lag1_h: 0.1902579282785506
+          lag1_v: 0.004152401948999596
+          row_std: 2.1137405558276016e-05
+          col_std: 1.571595062627683e-06
+          row_fixed_std: 2.0712132578046314e-05
+          col_fixed_std: 1.3642621627639757e-05
+          code_step_dn: 4.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 4.2321915733561564e-08
+            excess_kurtosis: -0.08821377073881953
+            lag1_h: 0.1902579282785506
+            lag1_v: 0.004152401948999596
+            row_power: 4.467899137350378e-10
+            col_power: 2.469911040875711e-12
+            row_fixed_power: 4.2899243593056746e-10
+            col_fixed_power: 1.8612112487494404e-10
+            spatial_variance: 4.3604391282377915e-08
+            spatial_excess_kurtosis: -0.28460616882974765
+        shutter: mechanical
+        crop_size: 1024
+        K: 3.3e-05
+        K_source: 'interim: blind real-photo fits (benchmark 2026-10-31), consistent
+          with pixel-area scaling from A7 III'
+      400: &id025
+        read_std: 0.00037133604937591763
+        tukey_lambda: 0.040000000000000036
+        ppcc: 0.9972845761901019
+        row_std: 5.5485280158145247e-05
+        col_std: 3.296456779597059e-05
+        row_fixed_std: 2.8037805757129648e-05
+        col_fixed_std: 1.1013841432464021e-05
+        black_offset: 3.367456896551724e-05
+        lag1_h: 0.03768098478323602
+        lag1_v: 0.0026784500952748806
+        hot_density: 9.5367431640625e-07
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 8
+        physics:
+          read_variance: 1.5566783305271326e-07
+          read_excess_kurtosis: 2.622632714392574
+          lag1_h: 0.03730590363167861
+          lag1_v: 0.002853894155172359
+          row_std: 4.308866841616949e-05
+          col_std: 4.90987127047752e-07
+          row_fixed_std: 2.1632016472003617e-05
+          col_fixed_std: 6.159401774351401e-06
+          code_step_dn: 4.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 1.6096117747682064e-07
+            excess_kurtosis: 1.2258381363705562
+            lag1_h: 0.03730590363167861
+            lag1_v: 0.002853894155172359
+            row_power: 1.8566333458786022e-09
+            col_power: 2.4106835892660537e-13
+            row_fixed_power: 4.679441366450359e-10
+            col_fixed_power: 3.793823021788318e-11
+            spatial_variance: 1.6626529134413486e-07
+            spatial_excess_kurtosis: 1.5269391389569984
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.000132
+        K_source: 'interim: blind real-photo fits (benchmark 2026-10-31), consistent
+          with pixel-area scaling from A7 III'
+      800: &id026
+        read_std: 0.0006534666370713797
+        tukey_lambda: -0.0050000000000000044
+        ppcc: 0.9948472740506689
+        row_std: 8.749787714680485e-05
+        col_std: 4.9746360872093954e-05
+        row_fixed_std: 3.437632151332293e-05
+        col_fixed_std: 1.716291888031839e-05
+        black_offset: 0.0
+        lag1_h: 0.013119130471542648
+        lag1_v: -0.004653532231993998
+        hot_density: 2.86102294921875e-06
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 9
+        physics:
+          read_variance: 4.601300280064294e-07
+          read_excess_kurtosis: 5.056510949057029
+          lag1_h: 0.011534436061445632
+          lag1_v: 0.0036684810125917275
+          row_std: 7.194040539881725e-05
+          col_std: 5.62015100651611e-06
+          row_fixed_std: 2.0699398032008713e-05
+          col_fixed_std: 1.0718326152955554e-05
+          code_step_dn: 4.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 4.6542337243053673e-07
+            excess_kurtosis: 2.4709962768607623
+            lag1_h: 0.011534436061445632
+            lag1_v: 0.0036684810125917275
+            row_power: 5.175421928946174e-09
+            col_power: 3.158609733604404e-11
+            row_fixed_power: 4.284650788875262e-10
+            col_fixed_power: 1.1488251552113102e-10
+            spatial_variance: 4.82048195650919e-07
+            spatial_excess_kurtosis: 2.9454024740038465
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.000264
+        K_source: 'interim: blind real-photo fits (benchmark 2026-10-31), consistent
+          with pixel-area scaling from A7 III'
+      1600: &id027
+        read_std: 0.0011415885807246088
+        tukey_lambda: -0.014999999999999958
+        ppcc: 0.9953890643856643
+        row_std: 0.00013135828552390247
+        col_std: 6.198512135355482e-05
+        row_fixed_std: 6.953743054954984e-05
+        col_fixed_std: 4.6927252626430225e-05
+        black_offset: -5.3879310344827565e-05
+        lag1_h: -0.006112737659572986
+        lag1_v: 0.0015055861128542526
+        hot_density: 2.193450927734375e-05
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 5
+        physics:
+          read_variance: 1.437870235095188e-06
+          read_excess_kurtosis: 8.044288126947796
+          lag1_h: 0.004121070916942511
+          lag1_v: 0.003143151015739596
+          row_std: 0.00011541938767529097
+          col_std: 0.0
+          row_fixed_std: 2.0250864616283653e-05
+          col_fixed_std: 2.1060845695690965e-05
+          code_step_dn: 4.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 1.4431635795192955e-06
+            excess_kurtosis: 3.9926846548147816
+            lag1_h: 0.004121070916942511
+            lag1_v: 0.003143151015739596
+            row_power: 1.332163505133911e-08
+            col_power: 0.0
+            row_fixed_power: 4.100975177070493e-10
+            col_fixed_power: 4.4355922141770465e-10
+            spatial_variance: 1.5014261891798915e-06
+            spatial_excess_kurtosis: 4.58820398384806
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.000528
+        K_source: 'interim: blind real-photo fits (benchmark 2026-10-31), consistent
+          with pixel-area scaling from A7 III'
+      3200: &id028
+        read_std: 0.002045249962913675
+        tukey_lambda: -0.044999999999999984
+        ppcc: 0.9924437885961184
+        row_std: 0.00020756807309984726
+        col_std: 0.00013122268460567376
+        row_fixed_std: 0.00012348462995102555
+        col_fixed_std: 5.72976029954906e-05
+        black_offset: -8.979885057471268e-05
+        lag1_h: 0.0026507114911055282
+        lag1_v: 0.0010584063230541267
+        hot_density: 1.621246337890625e-05
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 6
+        physics:
+          read_variance: 4.6936413959968855e-06
+          read_excess_kurtosis: 10.754407497938445
+          lag1_h: 0.0016749022327892053
+          lag1_v: 0.005090288815135697
+          row_std: 0.00016179333817904656
+          col_std: 1.4497665657051261e-05
+          row_fixed_std: 9.57776538160978e-05
+          col_fixed_std: 3.90926919687514e-05
+          code_step_dn: 4.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 4.6989347404209926e-06
+            excess_kurtosis: 5.365094983919718
+            lag1_h: 0.0016749022327892053
+            lag1_v: 0.005090288815135697
+            row_power: 2.617708427911933e-08
+            col_power: 2.101823095036436e-10
+            row_fixed_power: 9.173358970516273e-09
+            col_fixed_power: 1.5282385653636803e-09
+            spatial_variance: 4.929377785600482e-06
+            spatial_excess_kurtosis: 6.439274199573003
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.001056
+        K_source: 'interim: blind real-photo fits (benchmark 2026-10-31), consistent
+          with pixel-area scaling from A7 III'
+      6400: &id029
+        read_std: 0.0029886156761952977
+        tukey_lambda: -0.08499999999999999
+        ppcc: 0.9904822452504529
+        row_std: 0.0003213427811986909
+        col_std: 0.00018335566591335287
+        row_fixed_std: 0.0002802911069110841
+        col_fixed_std: 0.00027032725209379614
+        black_offset: 0.00011545566502463058
+        lag1_h: -0.0044769019981195
+        lag1_v: 0.0003057111623852489
+        hot_density: 3.814697265625e-05
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 7
+        physics:
+          read_variance: 1.035648658564359e-05
+          read_excess_kurtosis: 13.674780594050299
+          lag1_h: 0.0007270816255999115
+          lag1_v: 0.005440058026313256
+          row_std: 0.0002643380532609293
+          col_std: 1.8273649423181382e-05
+          row_fixed_std: 0.0
+          col_fixed_std: 6.293406718271063e-05
+          code_step_dn: 4.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 1.0361779930067698e-05
+            excess_kurtosis: 6.830406124668116
+            lag1_h: 0.0007270816255999115
+            lag1_v: 0.005440058026313256
+            row_power: 6.987460640177788e-08
+            col_power: 3.339262632413372e-10
+            row_fixed_power: 0.0
+            col_fixed_power: 3.9606968121579346e-09
+            spatial_variance: 1.1123660382781516e-05
+            spatial_excess_kurtosis: 9.281896222271905
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.002112
+        K_source: 'interim: blind real-photo fits (benchmark 2026-10-31), consistent
+          with pixel-area scaling from A7 III'
+      25600: &id030
+        read_std: 0.010055825724813634
+        tukey_lambda: 0.16500000000000004
+        ppcc: 0.9998875082497494
+        row_std: 0.0010149369958531228
+        col_std: 0.0005915709697324833
+        row_fixed_std: 0.0014014452758618304
+        col_fixed_std: 0.0013524230158073265
+        black_offset: 0.0003232758620689653
+        lag1_h: 0.057913368860213824
+        lag1_v: 0.05955507577485393
+        hot_density: 0.0
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 5
+        physics:
+          read_variance: 9.931110202889595e-05
+          read_excess_kurtosis: 0.0
+          lag1_h: 0.0756099009147249
+          lag1_v: 0.07664206112248304
+          row_std: 0.0008246311524942078
+          col_std: 0.0
+          row_fixed_std: 0.00020024353546777037
+          col_fixed_std: 0.00020247686217401262
+          code_step_dn: 4.0
+          black_dn: 512.0
+          white_dn: 16383.0
+          statistics:
+            variance: 9.931639537332006e-05
+            excess_kurtosis: -0.06846370341700858
+            lag1_h: 0.0756099009147249
+            lag1_v: 0.07664206112248304
+            row_power: 6.800165376639255e-07
+            col_power: 0.0
+            row_fixed_power: 4.009747349663221e-08
+            col_fixed_power: 4.0996879715834106e-08
+            spatial_variance: 0.00010563052653007786
+            spatial_excess_kurtosis: -0.2938842954052525
+        shutter: mechanical
+        crop_size: 1024
+        K: 0.008448
+        K_source: 'interim: blind real-photo fits (benchmark 2026-10-31), consistent
+          with pixel-area scaling from A7 III'
+    quantization: sony_curve
+    processed_isos:
+    - 25600
+    shutters:
+      mechanical:
+        iso:
+          100: *id024
+          400: *id025
+          800: *id026
+          1600: *id027
+          3200: *id028
+          6400: *id029
+          25600: *id030
+    shutter: mechanical
+  rx100m5:
+    iso:
+      125:
+        read_std: 0.00025
+        tukey_lambda: 0.11000000000000004
+        row_std: 2.2520902379663117e-05
+        col_std: 1.1902553364677765e-05
+        row_fixed_std: 2.2702961402942093e-05
+        col_fixed_std: 1.7678589510981157e-05
+        black_offset: 0.0
+        lag1_h: 0.191237003070671
+        lag1_v: 0.0
+        hot_density: 0.0
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 0
+        K: 0.00010625000000000001
+        K_source: 'ESTIMATED (no darks/flats): read and K from blind real-photo fits
+          (benchmark 2026-10-31); tails, banding ratios and correlation borrowed from
+          A5100'
+      400:
+        read_std: 0.0004
+        tukey_lambda: -0.010000000000000009
+        row_std: 5.449108446017612e-05
+        col_std: 3.11946311770114e-05
+        row_fixed_std: 3.6125165401822105e-05
+        col_fixed_std: 2.3771462872347645e-05
+        black_offset: 0.0
+        lag1_h: 0.03501117448881961
+        lag1_v: 0.0
+        hot_density: 1.897644676430131e-06
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 0
+        K: 0.00034
+        K_source: 'ESTIMATED (no darks/flats): read and K from blind real-photo fits
+          (benchmark 2026-10-31); tails, banding ratios and correlation borrowed from
+          A5100'
+      800:
+        read_std: 0.00086
+        tukey_lambda: -0.03999999999999998
+        row_std: 9.947897142065102e-05
+        col_std: 5.493699497160426e-05
+        row_fixed_std: 4.7157606123505874e-05
+        col_fixed_std: 3.4505591673396756e-05
+        black_offset: 0.0
+        lag1_h: 0.012487922450549829
+        lag1_v: 0.0
+        hot_density: 4.90912427163447e-06
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 0
+        K: 0.00068
+        K_source: 'ESTIMATED (no darks/flats): read and K from blind real-photo fits
+          (benchmark 2026-10-31); tails, banding ratios and correlation borrowed from
+          A5100'
+      1600:
+        read_std: 0.0019
+        tukey_lambda: -0.05499999999999999
+        row_std: 0.0001769694280855013
+        col_std: 7.122053322582778e-05
+        row_fixed_std: 0.00010927642237079431
+        col_fixed_std: 7.173047398139084e-05
+        black_offset: 0.0
+        lag1_h: 0.004564130235886969
+        lag1_v: 0.0
+        hot_density: 2.6360759744322906e-05
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 0
+        K: 0.00136
+        K_source: 'ESTIMATED (no darks/flats): read and K from blind real-photo fits
+          (benchmark 2026-10-31); tails, banding ratios and correlation borrowed from
+          A5100'
+      3200:
+        read_std: 0.0042
+        tukey_lambda: -0.07499999999999998
+        row_std: 0.00034553603192347707
+        col_std: 0.00019438007384102094
+        row_fixed_std: 0.0002318899636324617
+        col_fixed_std: 0.00011630764077909954
+        black_offset: 0.0
+        lag1_h: 0.0016110535096804154
+        lag1_v: 0.0
+        hot_density: 1.7120055233010963e-05
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 0
+        K: 0.00272
+        K_source: 'ESTIMATED (no darks/flats): read and K from blind real-photo fits
+          (benchmark 2026-10-31); tails, banding ratios and correlation borrowed from
+          A5100'
+      6400:
+        read_std: 0.009
+        tukey_lambda: -0.11499999999999999
+        row_std: 0.0007821379841778511
+        col_std: 0.000408648909621388
+        row_fixed_std: 0.0008558497011625708
+        col_fixed_std: 0.0008187777216881168
+        black_offset: 0.0
+        lag1_h: 0.001047203293774658
+        lag1_v: 0.0
+        hot_density: 3.584898312647356e-05
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 0
+        K: 0.00544
+        K_source: 'ESTIMATED (no darks/flats): read and K from blind real-photo fits
+          (benchmark 2026-10-31); tails, banding ratios and correlation borrowed from
+          A5100'
+      12800:
+        read_std: 0.018
+        tukey_lambda: -0.11499999999999999
+        row_std: 0.0015642759683557022
+        col_std: 0.000817297819242776
+        row_fixed_std: 0.0017116994023251416
+        col_fixed_std: 0.0016375554433762337
+        black_offset: 0.0
+        lag1_h: 0.001047203293774658
+        lag1_v: 0.0
+        hot_density: 3.584898312647356e-05
+        code_step: 0.00025203200806502425
+        black_dn: 512.0
+        white_dn: 16383.0
+        frames: 0
+        K: 0.01088
+        K_source: 'ESTIMATED (no darks/flats): read and K from blind real-photo fits
+          (benchmark 2026-10-31); tails, banding ratios and correlation borrowed from
+          A5100'
+    quantization: sony_curve
+    note: estimated profile; RX100 V not available for calibration

@@ -1,0 +1,6 @@
+# Copy to gpu_host.yaml (ignored), or set RAWDENOISE_GPU_HOST.
+# Flat scalar keys only; no inline comments or nested YAML.
+host: gpu-host.example
+user: researcher
+project: rawdenoise-lab
+min_free_gb: 10

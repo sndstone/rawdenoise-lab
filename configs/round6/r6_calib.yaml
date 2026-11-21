@@ -1,0 +1,181 @@
+data:
+  kind: mixed
+  probabilities:
+  - 0.2
+  - 0.3
+  - 0.15
+  - 0.35
+  sources:
+  - augment: true
+    bin_factors:
+    - 2
+    bin_probability: 0.0
+    bright_exposure_probability: 0.5
+    channel_gain_probability: 0.5
+    channel_gain_range:
+    - 0.4
+    - 2.5
+    column_relative_max: 0.15
+    crop_size: 128
+    defect_options:
+      density_range:
+      - 1.0e-05
+      - 0.0003
+    defect_probability: 0.5
+    exposure_range:
+    - 0.015625
+    - 1
+    exposure_sampling: log
+    identity_probability: 0.03
+    impulse_range:
+    - 1.0e-05
+    - 0.005
+    impulse_sigma_range:
+    - 3.0
+    - 30.0
+    kind: bootstrap
+    manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+    read_range:
+    - 3.0e-05
+    - 0.006
+    resite: false
+    root: data
+    row_max: 0.0005
+    shot_range:
+    - 1.0e-05
+    - 0.002
+  - augment: true
+    crop_size: 128
+    root: data
+    exposure_range: &id001
+    - 0.015625
+    - 1
+    exposure_sampling: log
+    bright_exposure_probability: 0.5
+    identity_probability: 0.03
+    channel_gain_probability: 0.5
+    channel_gain_range: &id002
+    - 0.4
+    - 2.5
+    bin_probability: 0.0
+    bin_factors: &id003
+    - 2
+    resite: false
+    defect_probability: 0.25
+    defect_options: &id004
+      density_range:
+      - 1.0e-05
+      - 0.0003
+    kind: camera
+    manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+    calibration: calib/darks_20261101.yaml
+    cameras: &id005
+      x1d2: 0.45
+      x1d2_electronic: 0.05
+      a7m3: 0.15
+      a5100: 0.2
+      rx100m5: 0.15
+    camera_options:
+      K_jitter_log: 0.3
+      read_jitter_log: 0.1
+      processed_probability: 0.1
+    gain_cap_iso:
+      x1d2: 6400
+      x1d2_electronic: 6400
+  - augment: true
+    crop_size: 128
+    root: data
+    exposure_range: *id001
+    exposure_sampling: log
+    bright_exposure_probability: 0.5
+    identity_probability: 0.03
+    channel_gain_probability: 0.5
+    channel_gain_range: *id002
+    bin_probability: 0.0
+    bin_factors: *id003
+    resite: false
+    defect_probability: 0.25
+    defect_options: *id004
+    kind: camera
+    manifest: data/bootstrap_binned/x1d2_bin2_train_r4.json
+    calibration: calib/darks_20261101.yaml
+    cameras: *id005
+    camera_options:
+      K_jitter_log: 0.3
+      read_jitter_log: 0.1
+      processed_probability: 0.1
+    gain_cap_iso:
+      x1d2: 6400
+      x1d2_electronic: 6400
+  - augment: true
+    crop_size: 128
+    root: data
+    exposure_range: *id001
+    exposure_sampling: log
+    bright_exposure_probability: 0.5
+    identity_probability: 0.03
+    channel_gain_probability: 0.5
+    channel_gain_range: *id002
+    bin_probability: 0.0
+    bin_factors: *id003
+    resite: false
+    defect_probability: 0.25
+    defect_options: *id004
+    kind: camera
+    manifest: data/bootstrap_binned_a7/a7m3_bin4_train.json
+    calibration: calib/darks_20261101.yaml
+    cameras:
+      a7m3: 0.4
+      a5100: 0.35
+      rx100m5: 0.25
+    camera_options:
+      K_jitter_log: 0.3
+      read_jitter_log: 0.1
+      processed_probability: 0.1
+    gain_cap_iso:
+      x1d2: 6400
+      x1d2_electronic: 6400
+device: cuda:0
+loss:
+  eps: 1.0e-05
+  gamma_weight: 0.25
+  kind: charbonnier
+  linear_weight: 1.0
+model:
+  arch: nafnet
+  cond: none
+  dec_blk_nums:
+  - 1
+  - 1
+  - 1
+  - 1
+  enc_blk_nums:
+  - 1
+  - 1
+  - 2
+  - 4
+  middle_blk_num: 6
+  width: 40
+seed: 20261101
+threads: 2
+training:
+  amp: bf16
+  batch_size: 16
+  betas:
+  - 0.9
+  - 0.99
+  checkpoint_every: 6000
+  ema_decay: 0.999
+  grad_accum: 1
+  grad_clip: 1.0
+  identity_init: false
+  keep_checkpoints: 4
+  log_every: 250
+  lr: 0.0001
+  min_lr: 1.0e-06
+  progress: false
+  run_dir: runs/round6/r6_calib
+  steps: 24000
+  warmup_steps: 500
+  weight_decay: 0.0001
+  workers: 6

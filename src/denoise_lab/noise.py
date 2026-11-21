@@ -24,13 +24,17 @@ def tukey_std(shape):
 
 
 class NoiseModel:
-    def __init__(self, calibration, seed=None):
+    def __init__(self, calibration, seed=None, physics_options=None, shutter=None):
         if isinstance(calibration, (str, Path)):
             with open(calibration) as f:
                 calibration = yaml.safe_load(f)
         if calibration.get("units") != "normalized":
             raise ValueError("Calibration must declare units: normalized")
+        self.physics_options = dict(physics_options or {})
+        if shutter is not None:
+            calibration = {**calibration, **calibration["shutters"][shutter]}
         self.calibration = calibration
+        self.pattern_key = f"{calibration.get('camera', 'sensor')}:{shutter or 'default'}"
         self.profiles = {int(k): v for k, v in calibration["iso"].items()}
         self.rng = np.random.default_rng(seed)
 
@@ -75,14 +79,19 @@ class NoiseModel:
             read = tukey_quantile(self.rng.uniform(size=clean.shape), shape)/tukey_std(shape)
         else:
             read = self.rng.normal(size=clean.shape)
+        if self.physics_options.get("horizontal_correlation"):
+            from .bayer import pack, unpack
+            from .physics_noise import correlate
+            read = unpack(correlate(pack(read), p.get("lag1_h", 0.)))
         noisy += std*read
-        noisy += self.rng.normal(0, p.get("row_std", 0.), (clean.shape[0], 1))
-        # A column offset is shared vertically, independently of the row term.
-        # Do not consume extra draws for legacy profiles without column noise.
-        if p.get("col_std", 0.):
-            noisy += self.rng.normal(0, p["col_std"], (1, clean.shape[1]))
+        if self.physics_options.get("banding"):
+            from .physics_noise import banding
+            noisy += banding(clean.shape, p, self.rng, self.pattern_key, self.physics_options.get("fixed_seed", 0))
+        else:
+            noisy += self.rng.normal(0, p.get("row_std", 0.), (clean.shape[0], 1))
         q = p.get("quant_step", 0.)
-        noisy += self.rng.uniform(-q/2, q/2, clean.shape)
+        if not self.physics_options.get("quantization"):
+            noisy += self.rng.uniform(-q/2, q/2, clean.shape)
         # Optional pixel-fixed PRNU map is supplied explicitly as an array;
         # random per-image PRNU is deliberately not mislabeled fixed-pattern.
         if "fixed_pattern" in p:
@@ -91,6 +100,9 @@ class NoiseModel:
                 raise ValueError("Fixed pattern must match sensor crop shape")
             noisy += pattern
         noisy += p.get("black_offset", 0.)
+        if self.physics_options.get("quantization"):
+            from .physics_noise import quantize_dn
+            noisy = quantize_dn(noisy, p)
         noisy = noisy.astype(np.float32)
         return (noisy, p) if return_params else noisy
 
