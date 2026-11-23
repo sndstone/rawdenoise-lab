@@ -198,7 +198,7 @@ From the repository root in the activated environment:
 
 ```bash
 pip install -e '.[dev,onnx]' onnx
-pytest -q tests/
+./scripts/run_ci.sh
 python scripts/train.py --config configs/smoke.yaml --device cpu
 ```
 

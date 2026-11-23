@@ -34,12 +34,12 @@ After an intentional environment update, recapture the constraints, remove
 editable/local entries, and rerun export and parity checks before claiming
 support. No clean reinstall is implied by the captured-version tests.
 
-CI runs one primary Linux/Python 3.12 suite (including synthetic NAS tests),
-one ONNX parity check with a torch-free deployment consumer, and a mandatory
-Core ML conversion job. The Core ML job sets `REQUIRE_COREMLTOOLS=1` so missing
-imports fail collection; conversion uses `skip_model_load=True` and needs no
-prediction hardware. Python 3.11/macOS compatibility runs weekly or on manual
-dispatch. All test jobs report skip reasons with `-rs`.
+CI runs locally via `./scripts/run_ci.sh` (lint with `ruff`, CLI smoke, and the
+full CPU/ONNX/Core ML `pytest` suite with `-rs`; pass `--fast` to skip slow
+export/parity tests). `.github/workflows/tests.yml` is manual
+`workflow_dispatch`-only so routine pushes do not trigger cloud runners. When
+`coremltools` is installed locally, `scripts/run_ci.sh` sets
+`REQUIRE_COREMLTOOLS=1` so missing or broken Core ML imports fail collection.
 
 Record each training file's source, applicable usage terms and split assignment. Verify permissions for the exact dataset version and intended use. Keep related captures together across splits and keep evaluation inputs separate from training. Do not commit private data, weights, generated outputs or credentials. The three approved demo DNGs in `examples/raw/` are inference examples, never training data.
 

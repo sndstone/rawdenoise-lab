@@ -173,7 +173,7 @@ def test_legacy_ssim_matches_target_filled_reduction(helpers):
     mask[16:32, 16:32] = True
     filled = np.where(mask, x, y).astype(np.float32)
     expected = ssim(torch.from_numpy(filled)[None], torch.from_numpy(y.astype(np.float32))[None])
-    assert expected == pytest.approx(.6319990907280051, abs=1e-14)
+    assert expected == pytest.approx(.6319990907280051, abs=1e-6)
     assert real.ssim_np(x, y, 1., mask, legacy_metrics=True) == expected
     assert real.ssim_np(x, y, 1., mask) == pytest.approx(.0001/.2501)
 

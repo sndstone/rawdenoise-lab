@@ -1,10 +1,14 @@
+# CI runs locally by default via scripts/run_ci.sh (and tools/hooks/pre-push).
+# Keep this GitHub Actions workflow manual-only (workflow_dispatch) so pushes,
+# pull requests, and schedules do not consume cloud CI minutes.
 name: tests
 on:
-  push:
-  pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: '17 4 * * 1'
+    inputs:
+      run_macos_compat:
+        description: "Also run macOS Python 3.11 compatibility job"
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -44,7 +48,7 @@ jobs:
       - run: rawdenoise --help
       - run: python -m pytest -q -rs tests/ --deselect=tests/test_inference.py::test_torch_onnx_parity --ignore=tests/test_export_coreml.py
   macos-compatibility:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: inputs.run_macos_compat == true
     runs-on: macos-latest
     env:
       PYTHONPATH: src
