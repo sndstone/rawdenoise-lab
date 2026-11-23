@@ -35,7 +35,7 @@ onnx = ["onnxruntime>=1.17"]
 onnx-gpu = ["onnxruntime-gpu>=1.17"]
 directml = ["onnxruntime-directml>=1.17"]
 audit = ["matplotlib>=3.8", "pillow", "exifread>=3"]
-nas = ["impacket>=0.13"]
+nas = ["impacket>=0.13", "exifread>=3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

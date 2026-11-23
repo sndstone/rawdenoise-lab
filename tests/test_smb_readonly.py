@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("impacket")
+pytest.importorskip("exifread")
 spec = importlib.util.spec_from_file_location("sample_smb_metadata", Path(__file__).parents[1] / "scripts/sample_smb_metadata.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
