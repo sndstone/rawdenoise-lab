@@ -99,15 +99,196 @@ def test_feather_footprint_and_white_ceiling():
     original[0, 1, 7, 7] = 1.01
     output = torch.full_like(original, 1.2)
     result = protect_highlights(output, original)
-    assert result[0, 1, 7, 7] == 1
+    # Sites already >= 1 keep their exact original headroom rather than clamping to 1.0.
+    assert result[0, 1, 7, 7] == original[0, 1, 7, 7]
     np.testing.assert_array_equal(result[0, [0, 2, 3], 7, 7], original[0, [0, 2, 3], 7, 7])
-    assert (result[..., 3:12, 3:12] <= 1).all()
     area = result[..., 3:12, 3:12]
-    assert (area[original[..., 3:12, 3:12] < 1] < 1).all()
+    orig_area = original[..., 3:12, 3:12]
+    assert (area <= torch.maximum(orig_area, torch.ones_like(orig_area))).all()
+    assert (area[orig_area < 1] < 1).all()
     np.testing.assert_array_equal(result[..., :3, :], output[..., :3, :])
     # Shared weights of 1, .75, .5, .25, 0 at increasing distances.
     soft = protect_highlights(torch.zeros_like(original), original)
     np.testing.assert_allclose(soft[0, 0, 7, 8:13], [.2, .15, .1, .05, 0], atol=1e-7)
+
+
+def test_protect_highlights_preserves_above_white_headroom_and_backend_parity():
+    from denoise_lab.bayer import unpack
+    from denoise_lab.dng import RawMetadata, sensor_codes
+    from denoise_lab.np_pipeline import protect_highlights as np_protect_highlights
+
+    # Simulate Sony A7M3/A5100 partial-clipping headroom (camera_white_level=15360, sensor codes up to 16596).
+    original = np.full((1, 4, 16, 16), 0.25, dtype=np.float32)
+    original[0, 0, 6:10, 6:10] = 0.50532
+    original[0, 1, 6:10, 6:10] = 1.06890
+    original[0, 2, 6:10, 6:10] = 1.02755
+    original[0, 3, 6:10, 6:10] = 1.06890
+    # Model output with overshoot and green dip inside core/feather.
+    output = original.copy()
+    output[0, 0] += 0.05
+    output[0, 1] -= 0.04
+    output[0, 2] += 0.08
+    output[0, 3] -= 0.04
+
+    res_torch = protect_highlights(torch.from_numpy(output), torch.from_numpy(original)).numpy()
+    res_np = np_protect_highlights(output, original)
+    np.testing.assert_array_equal(res_torch, res_np)
+
+    # Protected core preserves exact >1.0 channel values -> zero raw (R+B)/2 - G distortion!
+    np.testing.assert_array_equal(res_torch[:, :, 6:10, 6:10], original[:, :, 6:10, 6:10])
+    # DNG sensor_codes roundtrip preserves >15360 Sony headroom codes cleanly.
+    meta = RawMetadata(black=np.full((2, 2), 512.0), white=np.full((2, 2), 15360.0))
+    codes = sensor_codes(unpack(res_torch[0]), meta)
+    assert int(codes.max()) == round(1.06890 * (15360.0 - 512.0) + 512.0)
+
+
+def test_tta_transpose_cancels_g1_g2_bias_torch_and_numpy():
+    from denoise_lab.np_pipeline import denoise_packed as np_denoise_packed
+
+    rng = np.random.default_rng(11)
+    packed = rng.uniform(0.05, 0.35, (4, 32, 32)).astype(np.float32)
+
+    # Artificial denoiser with deliberate +0.02 G1 / -0.02 G2 asymmetry (mimics r4_plain green split).
+    bias = np.array([0.0, +0.02, 0.0, -0.02], dtype=np.float32)[None, :, None, None]
+    torch_bias = torch.from_numpy(bias)
+    model_t = denoiser(lambda a: a + torch_bias)
+
+    off_t = model_t.denoise_packed(packed, prepass=False, tile_size=32, overlap=0, highlights='off', tta_transpose=False)
+    on_t = model_t.denoise_packed(packed, prepass=False, tile_size=32, overlap=0, highlights='off', tta_transpose=True)
+    # Without transpose TTA, G1-G2 shifts by +0.04; with exact Bayer transpose TTA, bias cancels to 0.
+    raw_g12 = float(np.mean(packed[1] - packed[3]))
+    assert abs(float(np.mean(off_t[1] - off_t[3])) - (raw_g12 + 0.04)) < 1e-6
+    assert abs(float(np.mean(on_t[1] - on_t[3])) - raw_g12) < 1e-6
+
+    # Exact parity with NumPy / ONNX / Core ML pipeline.
+    on_np = np_denoise_packed(
+        lambda a: a + bias, packed, mode='off', defect_mask=None, overlap=0, strength=1.0,
+        tile_size=32, highlights='off', offsets=[0], grid_alignment=1,
+        feather_mode='linear', chroma_strength=1.0, gains=(1., 1., 1.), tta_transpose=True,
+    )
+    np.testing.assert_allclose(on_t, on_np, atol=1e-6)
+    # Verify Denoiser wrapper rejects non-bool tta_transpose cleanly.
+    with pytest.raises(ValueError, match='tta_transpose'):
+        model_t.denoise_packed(packed, tile_size=32, overlap=0, tta_transpose=2)
+
+
+def test_tta_transpose_rectangular_multitile_and_directional_operator():
+    from denoise_lab.np_pipeline import denoise_packed as np_denoise_packed
+    from denoise_lab.tiling import shift_offsets
+
+    rng = np.random.default_rng(29)
+    # Non-square multi-tile shape (H != W, triggers multiple tiles & feather seams in both axes).
+    packed = rng.uniform(0.05, 0.45, (4, 40, 68)).astype(np.float32)
+
+    # 1) Identity round-trip under multi-tile + tta_shift=2 + tta_transpose=True.
+    id_torch = denoiser(lambda a: a).denoise_packed(
+        packed, prepass=False, tile_size=32, overlap=8, tta_shift=2, highlights='off', tta_transpose=True,
+    )
+    id_np = np_denoise_packed(
+        lambda a: a, packed, mode='off', defect_mask=None, overlap=8, strength=1.0,
+        tile_size=32, highlights='off', offsets=shift_offsets(32, 8, 1, 2), grid_alignment=1,
+        feather_mode='linear', chroma_strength=1.0, gains=(1., 1., 1.), tta_transpose=True,
+    )
+    np.testing.assert_allclose(id_torch, packed, atol=1e-6)
+    np.testing.assert_allclose(id_np, packed, atol=1e-6)
+    np.testing.assert_allclose(id_torch, id_np, atol=1e-6)
+
+    # 2) Direction-sensitive anisotropic operator (horizontal shift + vertical gradient + G1/G2 bias).
+    # Catches any bug in spatial axis inversion or G1<->G2 channel permutation across rectangular tiles.
+    ch_bias = np.array([0.01, +0.03, -0.02, -0.01], dtype=np.float32)[None, :, None, None]
+    ch_bias_t = torch.from_numpy(ch_bias)
+
+    def aniso_torch(a):
+        horiz = torch.roll(a, shifts=1, dims=-1)
+        vert_diff = a - torch.roll(a, shifts=-1, dims=-2)
+        return 0.7 * a + 0.2 * horiz + 0.1 * vert_diff + ch_bias_t
+
+    def aniso_np(a):
+        horiz = np.roll(a, shift=1, axis=-1)
+        vert_diff = a - np.roll(a, shift=-1, axis=-2)
+        return (0.7 * a + 0.2 * horiz + 0.1 * vert_diff + ch_bias).astype(np.float32)
+
+    # Single-tile (tile_size=128) interior exact check against analytical Bayer transpose reference,
+    # plus full-image (including reflected borders) exact check against explicit TTA-off average.
+    perm = [0, 3, 2, 1]
+    x_t = torch.from_numpy(packed)[None]
+    x_t_tr = x_t[:, perm].transpose(-2, -1).contiguous()
+    expected_interior = (0.5 * (aniso_torch(x_t) + aniso_torch(x_t_tr).transpose(-2, -1)[:, perm]))[0].numpy()
+
+    model_aniso = denoiser(aniso_torch)
+    out_t_1 = model_aniso.denoise_packed(
+        packed, prepass=False, tile_size=128, overlap=0, highlights='off', tta_transpose=True,
+    )
+    out_np_1 = np_denoise_packed(
+        aniso_np, packed, mode='off', defect_mask=None, overlap=0, strength=1.0,
+        tile_size=128, highlights='off', offsets=[0], grid_alignment=1,
+        feather_mode='linear', chroma_strength=1.0, gains=(1., 1., 1.), tta_transpose=True,
+    )
+    np.testing.assert_allclose(out_t_1[:, 1:-1, 1:-1], expected_interior[:, 1:-1, 1:-1], atol=1e-6)
+    np.testing.assert_allclose(out_np_1[:, 1:-1, 1:-1], expected_interior[:, 1:-1, 1:-1], atol=1e-6)
+    np.testing.assert_allclose(out_t_1, out_np_1, atol=1e-6)
+
+    # Full-frame (borders + seams) check against two explicit non-transposed runs on multi-tile + tta_shift=2.
+    packed_tr = np.ascontiguousarray(packed[perm].transpose(0, 2, 1))
+    ref_fwd = model_aniso.denoise_packed(
+        packed, prepass=False, tile_size=32, overlap=8, tta_shift=2, highlights='off', tta_transpose=False,
+    )
+    ref_tr = model_aniso.denoise_packed(
+        packed_tr, prepass=False, tile_size=32, overlap=8, tta_shift=2, highlights='off', tta_transpose=False,
+    ).transpose(0, 2, 1)[perm]
+    expected_full_m = 0.5 * (ref_fwd + ref_tr)
+
+    out_t_m = model_aniso.denoise_packed(
+        packed, prepass=False, tile_size=32, overlap=8, tta_shift=2, highlights='off', tta_transpose=True,
+    )
+    out_np_m = np_denoise_packed(
+        aniso_np, packed, mode='off', defect_mask=None, overlap=8, strength=1.0,
+        tile_size=32, highlights='off', offsets=shift_offsets(32, 8, 1, 2), grid_alignment=1,
+        feather_mode='linear', chroma_strength=1.0, gains=(1., 1., 1.), tta_transpose=True,
+    )
+    np.testing.assert_allclose(out_t_m, expected_full_m, atol=1e-6)
+    np.testing.assert_allclose(out_np_m, expected_full_m, atol=1e-6)
+    np.testing.assert_allclose(out_t_m, out_np_m, atol=1e-6)
+
+
+def test_gate_highlight_metrics_detects_headroom_clamp_in_lab():
+    import importlib.util
+    from pathlib import Path
+    from denoise_lab.dng import RawMetadata
+
+    gate_path = Path(__file__).resolve().parents[1] / "scripts" / "evaluate_foliage_highlights_gate.py"
+    spec = importlib.util.spec_from_file_location("evaluate_foliage_highlights_gate", gate_path)
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    highlight_metrics = gate.highlight_metrics
+
+    # Sony-like partial clip with >1.0 headroom in G and B, unclipped R.
+    orig = np.full((4, 32, 32), 0.20, dtype=np.float32)
+    orig[0, 10:22, 10:22] = 0.50532
+    orig[1, 10:22, 10:22] = 1.06890
+    orig[2, 10:22, 10:22] = 1.02755
+    orig[3, 10:22, 10:22] = 1.06890
+    meta = RawMetadata(
+        black=np.full((2, 2), 512.0),
+        white=np.full((2, 2), 15360.0),
+        neutral=(0.45, 1.0, 0.65),
+    )
+
+    # A broken denoiser that only clamps >1.0 headroom to 1.0 must show a clear non-zero Lab shift.
+    clamped = np.minimum(orig, 1.0).astype(np.float32)
+    m_clamped = highlight_metrics(orig, clamped, meta, exposure=0.5, headroom_scale=4.0, prepass_ref=orig)
+    assert m_clamped["has_clip"]
+    assert abs(m_clamped["core"]["mean_da"]) > 0.5
+    assert m_clamped["core"]["raw_rb_minus_g_shift"] > 0.02
+    assert "max_abs_diff" in m_clamped["ring_1_4"]
+    assert "core_max_abs_diff" not in m_clamped["ring_1_4"]
+
+    # Fixed protect_highlights preserves >1.0 headroom -> zero Lab shift and zero prepass diff.
+    fixed = protect_highlights(torch.from_numpy(clamped)[None], torch.from_numpy(orig)[None])[0].numpy()
+    m_fixed = highlight_metrics(orig, fixed, meta, exposure=0.5, headroom_scale=4.0, prepass_ref=orig)
+    assert abs(m_fixed["core"]["mean_da"]) < 1e-6
+    assert abs(m_fixed["core"]["mean_db"]) < 1e-6
+    assert m_fixed["core"]["prepass_max_abs_diff"] == 0.0
 
 
 def test_protection_does_not_restore_prepass_defects():

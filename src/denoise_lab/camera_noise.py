@@ -14,7 +14,7 @@ import torch
 import yaml
 
 from .bayer import augment_mosaic, pack, random_crop, read_mosaic, unpack
-from .clean_targets import BinnedBootstrapDataset, apply_channel_gains, bin_mosaic
+from .clean_targets import BinnedBootstrapDataset, apply_channel_gains, apply_clip_highlight, bin_mosaic
 from .data import BootstrapDataset, _tensor
 from .defects import inject_defects
 from .flat_augment import synthetic_smooth_mosaic
@@ -160,7 +160,7 @@ class CameraNoise:
         self._physics_profile(p, cam, iso)
         return p
 
-    def apply(self, clean, p, rng):
+    def apply(self, clean, p, rng, clip_ceiling=None):
         clean = np.asarray(clean, np.float64)
         if clean.ndim != 2 or clean.shape[0] % 2 or clean.shape[1] % 2:
             raise ValueError("Expected an even-sized RGGB mosaic")
@@ -203,14 +203,19 @@ class CameraNoise:
         if opts.get("quantization"):
             if p["quantization"] == "sony_curve":
                 phys = {**phys, "quantization_steps_dn": SONY_STEPS}
-            return quantize_dn(noisy, phys).astype(np.float32)
+            return quantize_dn(noisy, phys, clip_ceiling=clip_ceiling).astype(np.float32)
         dn = noisy*span+p["black_dn"]
+        raw_upper_dn = p["white_dn"] if clip_ceiling is None else p["black_dn"] + float(clip_ceiling) * span
         if p["quantization"] == "sony_curve":
             step = np.select([dn < lim for lim, _ in SONY_STEPS], [s for _, s in SONY_STEPS])
-            dn = np.round(dn/step)*step
+            upper_step = float(np.select([raw_upper_dn < lim for lim, _ in SONY_STEPS], [s for _, s in SONY_STEPS]))
         else:
-            dn = np.round(dn/max(p["code_step"]*span, 1e-9))*p["code_step"]*span
-        dn = np.clip(dn, 0, p["white_dn"])
+            step = max(p["code_step"]*span, 1e-9)
+            upper_step = step
+        dn = np.round(dn/step)*step
+        # Snap saturation ceiling down on the ceiling's own curve segment so one saturation code is emitted.
+        upper_dn = p["white_dn"] if clip_ceiling is None else float(np.floor(raw_upper_dn / upper_step) * upper_step)
+        dn = np.clip(dn, 0, upper_dn)
         return ((dn-p["black_dn"])/span).astype(np.float32)
 
 
@@ -225,7 +230,8 @@ class CameraNoiseDataset(BinnedBootstrapDataset):
         """Reject inherited settings unused by this dataset before any file IO."""
         unused = {"resite", "iso_coupled", "noise_map_jitter", "shot_range", "read_range",
                   "row_max", "fixed_parameters", "column_relative_max", "impulse_range",
-                  "impulse_sigma_range", "impulse_positive"}
+                  "impulse_sigma_range", "impulse_positive",
+                  "lag1_h_range", "lag1_v_range", "quantize_bits_choices"}
         defaults = {}
         for cls in CameraNoiseDataset.__mro__[1:]:
             if "__init__" in cls.__dict__:
@@ -265,27 +271,35 @@ class CameraNoiseDataset(BinnedBootstrapDataset):
         if self.augment and self.flat_probability > 0 and rng.random() < self.flat_probability:
             clean = synthetic_smooth_mosaic(*clean.shape, rng, **self.flat_options)
         p = self.camera_noise.sample(rng)
-        exposure = self.exposure_scale
-        if self.augment:
-            lo, hi = self.exposure_range
-            if self.bright_exposure_probability > 0 and rng.random() < self.bright_exposure_probability:
-                exposure *= float(rng.uniform(.6, 1.))
-            else:
-                exposure *= float(np.exp(rng.uniform(np.log(lo), np.log(hi)))
-                                  if self.exposure_sampling == "log" else rng.uniform(lo, hi))
-        cap = self.gain_cap_iso.get(p["camera"])
-        if cap and p["iso"] > cap:
-            exposure *= cap/p["iso"]
-        clean = (clean*exposure).astype(np.float32)
+        clip_ceiling = None
+        if self.augment and self.clip_highlight_probability > 0 and rng.random() < self.clip_highlight_probability:
+            signal_for_noise, clean, exposure, clip_ceiling = apply_clip_highlight(
+                clean, self.exposure_scale, rng, self.clip_exposure_range, self.clip_ceiling_range
+            )
+        else:
+            exposure = self.exposure_scale
+            if self.augment:
+                lo, hi = self.exposure_range
+                if self.bright_exposure_probability > 0 and rng.random() < self.bright_exposure_probability:
+                    exposure *= float(rng.uniform(.6, 1.))
+                else:
+                    exposure *= float(np.exp(rng.uniform(np.log(lo), np.log(hi)))
+                                      if self.exposure_sampling == "log" else rng.uniform(lo, hi))
+            cap = self.gain_cap_iso.get(p["camera"])
+            if cap and p["iso"] > cap:
+                exposure *= cap/p["iso"]
+            clean = (clean*exposure).astype(np.float32)
+            signal_for_noise = clean
         identity = self.augment and rng.random() < self.identity_probability
         if identity:
             noisy = clean.copy()
         else:
-            noisy = self.camera_noise.apply(clean, p, rng)
+            noisy = self.camera_noise.apply(signal_for_noise, p, rng, clip_ceiling=clip_ceiling)
         if self.augment and self.defect_probability > 0 and rng.random() < self.defect_probability:
             noisy, _ = inject_defects(noisy, rng, **self.defect_options)
         inp, target = pack(noisy), pack(clean)
         parameters = {"K": 0., "read_std": 0.} if identity and self.zero_identity_noise_map else p
         std = noise_std({k: parameters[k] for k in ("K", "read_std")}, np.maximum(inp, 0).mean(0, keepdims=True))
         return {"noisy": _tensor(inp), "clean": _tensor(target), "noise_map": _tensor(std),
-                "exposure_scale": exposure, "bin_factor": factor}
+                "exposure_scale": exposure, "bin_factor": factor,
+                "clip_ceiling": float(clip_ceiling if clip_ceiling is not None else 1.0)}

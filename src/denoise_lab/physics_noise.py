@@ -56,7 +56,7 @@ def moment_read(shape, variance, excess, rng):
     return rng.normal(size=shape)*np.sqrt(max(0., variance)*scales)
 
 
-def quantize_dn(noisy, p):
+def quantize_dn(noisy, p, clip_ceiling=None):
     """Round absolute DN codes before normalization; preserve signed black residuals."""
     span = p["white_dn"]-p["black_dn"]
     if span <= 0:
@@ -68,10 +68,14 @@ def quantize_dn(noisy, p):
     if step <= 0:
         raise ValueError("Quantisation needs a positive code_step_dn or effective_bits")
     dn = noisy*span+p["black_dn"]
+    raw_upper_dn = p["white_dn"] if clip_ceiling is None else p["black_dn"] + float(clip_ceiling) * span
     if p.get("quantization_steps_dn"):
         curve = p["quantization_steps_dn"]
         step = np.select([dn < limit for limit, _ in curve], [value for _, value in curve])
-    dn = np.clip(np.round(dn/step)*step, 0, np.floor(p["white_dn"]/step)*step)
+        upper_step = float(np.select([raw_upper_dn < limit for limit, _ in curve], [value for _, value in curve]))
+    else:
+        upper_step = step
+    dn = np.clip(np.round(dn/step)*step, 0, np.floor(raw_upper_dn/upper_step)*upper_step)
     return (dn-p["black_dn"])/span
 
 

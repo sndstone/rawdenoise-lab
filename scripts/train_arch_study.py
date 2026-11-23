@@ -14,7 +14,8 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm import trange
 from denoise_lab.data import BootstrapDataset, PairedBurstDataset, SyntheticDataset, mixed_sampler, resumable_loader
-from denoise_lab.model import expand_unconditioned_state, parameter_count
+from denoise_lab.inference import protect_highlights
+from denoise_lab.model import expand_unconditioned_state, gamma, parameter_count
 from denoise_lab.arch_registry import build_model
 from denoise_lab.losses import DenoiseLoss
 from denoise_lab.flat_augment import FlatAugmentedBootstrapDataset
@@ -35,7 +36,9 @@ def dataset(config, require_conditioning=False):
         return SyntheticDataset(**config), None
     if kind == "bootstrap":
         cls = FlatAugmentedBootstrapDataset if any(key in config for key in ("flat_probability", "flat_options", "defect_probability", "defect_options")) else BootstrapDataset
-        if any(key in config for key in ("bin_probability", "bin_factors", "channel_gain_probability", "channel_gain_range", "resite", "iso_coupled", "noise_map_jitter")):
+        if any(key in config for key in ("bin_probability", "bin_factors", "channel_gain_probability", "channel_gain_range",
+                                         "resite", "iso_coupled", "noise_map_jitter",
+                                         "clip_highlight_probability", "clip_exposure_range", "clip_ceiling_range")):
             cls = BinnedBootstrapDataset
         return cls(**config), None
     if kind == "camera":
@@ -92,7 +95,10 @@ def main():
     train = cfg["training"]
     if train.get("identity_init", False) and not (args.resume or args.init_checkpoint):
         torch.nn.init.zeros_(model.body.ending.weight)
-        torch.nn.init.zeros_(model.body.ending.bias)
+        if model.body.ending.bias is not None:
+            torch.nn.init.zeros_(model.body.ending.bias)
+        if getattr(model.body, "ending_gdiff", None) is not None:
+            torch.nn.init.zeros_(model.body.ending_gdiff.weight)
     parameter_count(model)
     ds, sampler = dataset(cfg["data"], require_conditioning=model.cond == "noise_map")
     workers = train.get("workers", 0)
@@ -110,10 +116,10 @@ def main():
     accum = int(train.get("grad_accum", 1))
     if accum < 1:
         raise ValueError("grad_accum must be positive")
-    # BF16 avoids FP16 overflow; CPU/MPS retain fp32 operator support.
-    amp = bool(train.get("amp", True) and device.type == "cuda")
+    # BF16 avoids FP16 overflow on both CUDA and Apple Silicon MPS; CPU retains fp32.
     amp_dtype = torch.bfloat16 if train.get("amp_dtype", train.get("amp")) in ("bfloat16", "bf16") else torch.float16
-    scaler = torch.amp.GradScaler("cuda", enabled=amp and amp_dtype == torch.float16)
+    amp = bool(train.get("amp", True) and (device.type == "cuda" or (device.type == "mps" and amp_dtype == torch.bfloat16)))
+    scaler = torch.amp.GradScaler("cuda", enabled=amp and device.type == "cuda" and amp_dtype == torch.float16)
     criterion = DenoiseLoss(**cfg.get("loss", {}))
     run = args.run_dir or Path(train.get("run_dir", "runs/train"))
     train["run_dir"] = str(run)
@@ -166,6 +172,38 @@ def main():
     if len(loader) == 0:
         raise ValueError("Empty training dataset")
     iterator = iter(loader)
+    distill = cfg.get("distill")
+    teacher = None
+    kd_criterion = None
+    kd_weight = kd_min_weight = 0.
+    protect_teacher_hl = False
+    distill_record = None
+    if distill:
+        from denoise_lab.checkpoints import load_checkpoint, model_config, resolve_weights
+        t_path = Path(distill["checkpoint"])
+        t_weights = distill.get("weights", "model")
+        t_saved = load_checkpoint(t_path)
+        t_cfg = model_config(t_saved)
+        if t_cfg.get("cond", "none") != "none":
+            raise ValueError("Distillation teacher must be unconditioned (cond=none)")
+        teacher = build_model(t_cfg).to(device)
+        teacher.load_state_dict(resolve_weights(t_saved, t_weights))
+        teacher.eval().requires_grad_(False)
+        kd_weight = float(distill.get("weight", 0.5))
+        kd_min_weight = float(distill.get("min_weight", kd_weight))
+        protect_teacher_hl = bool(distill.get("protect_teacher_highlights", False))
+        kd_loss_keys = ("kind", "eps", "linear_weight", "gamma_weight", "chroma_weight",
+                        "chroma_lowpass_weight", "chroma_lowpass_kernel", "green_balance_weight",
+                        "highlight_chroma_weight", "highlight_threshold", "green_dc_weight", "green_dc_kernel")
+        kd_loss_cfg = {k: distill[k] for k in kd_loss_keys if k in distill}
+        kd_criterion = DenoiseLoss(**kd_loss_cfg)
+        distill_record = {"checkpoint": str(t_path), "weights": t_weights,
+                          "sha256": hashlib.sha256(t_path.read_bytes()).hexdigest(),
+                          "weight": kd_weight, "min_weight": kd_min_weight,
+                          "protect_teacher_highlights": protect_teacher_hl}
+        print(f"distill: teacher={t_path} ({t_weights}) weight={kd_weight}->{kd_min_weight} protect_hl={protect_teacher_hl}", flush=True)
+    tc_weight = float(train.get("transpose_consistency_weight", 0.))
+    tc_fraction = float(train.get("transpose_consistency_fraction", 0.25))
     selfsup = cfg.get("selfsup")
     if selfsup:
         from denoise_lab.selfsup import RealNoisyDataset, neighbor_loss
@@ -207,8 +245,8 @@ def main():
             for old in sorted(run.glob("step_*.pt"))[:-keep]:
                 old.unlink()
 
-    (run/"run_manifest.json").write_text(json.dumps({"config": cfg, "init": init_record, "steps": steps,
-        "start": start, "data_manifest_sha256": manifest_sha, "device": str(device),
+    (run/"run_manifest.json").write_text(json.dumps({"config": cfg, "init": init_record, "distill": distill_record,
+        "steps": steps, "start": start, "data_manifest_sha256": manifest_sha, "device": str(device),
         "torch": torch.__version__, "started_unix": time.time()}, indent=2))
     model.train()
     if device.type == "cuda":
@@ -217,6 +255,10 @@ def main():
     for step in trange(start, steps, disable=not train.get("progress", True)):
         opt.zero_grad(set_to_none=True)
         value = 0.
+        kd_value = 0.
+        tc_value = 0.
+        kd_w = (kd_min_weight + (kd_weight - kd_min_weight) * .5 *
+                (1. + math.cos(math.pi * min(1., step / max(1, steps - 1))))) if teacher is not None else 0.
         for micro in range(accum):
             try:
                 batch = next(iterator)
@@ -231,6 +273,34 @@ def main():
                 prediction = (model.training_prediction(noisy, clean)
                               if hasattr(model, "training_prediction") else model(noisy, cond))
                 loss = criterion(prediction, clean)/accum
+                if teacher is not None and kd_w > 0:
+                    with torch.no_grad():
+                        teacher_pred = teacher(noisy, None)
+                        if protect_teacher_hl:
+                            if "clip_ceiling" in batch:
+                                c_ceil = batch["clip_ceiling"].to(device=device, dtype=torch.float32).view(-1, 1, 1, 1)
+                                hl_thr = torch.minimum(torch.full_like(c_ceil, 0.98), c_ceil * 0.98)
+                                c_max = torch.minimum(torch.ones_like(c_ceil), c_ceil)
+                            else:
+                                hl_thr, c_max = 0.98, None
+                            teacher_pred = protect_highlights(teacher_pred.float(), clean.float(),
+                                                              threshold=hl_thr, ceiling_max=c_max).to(teacher_pred.dtype)
+                    kd_term = kd_criterion(prediction, teacher_pred)/accum
+                    loss = loss + kd_w * kd_term
+                    kd_value += float(kd_term.detach())
+                if tc_weight > 0:
+                    k_tc = max(1, min(noisy.shape[0], int(round(noisy.shape[0] * tc_fraction))))
+                    perm = (0, 3, 2, 1)
+                    noisy_tr = noisy[:k_tc, perm].transpose(-2, -1).contiguous()
+                    cond_tr = cond[:k_tc].transpose(-2, -1).contiguous() if cond is not None else None
+                    pred_tr = (model.training_prediction(noisy_tr, clean[:k_tc, perm].transpose(-2, -1).contiguous())
+                               if hasattr(model, "training_prediction") else model(noisy_tr, cond_tr))
+                    pred_tr_inv = pred_tr.transpose(-2, -1)[:, perm]
+                    p_a, p_b = prediction[:k_tc].float(), pred_tr_inv.float()
+                    tc_term = (0.5 * criterion.distance(p_a, p_b) +
+                               0.5 * criterion.distance(gamma(p_a), gamma(p_b))) / accum
+                    loss = loss + tc_weight * tc_term
+                    tc_value += float(tc_term.detach())
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"Nonfinite loss at step {step}")
             scaler.scale(loss).backward()
@@ -256,7 +326,10 @@ def main():
             ema_updates += 1
         sched.step()
         history.append({"step": step+1, "loss": value, "lr": sched.get_last_lr()[0],
-                        "elapsed": time.monotonic()-started, **({"selfsup_loss": ss_value} if selfsup else {})})
+                        "elapsed": time.monotonic()-started,
+                        **({"kd_loss": kd_value, "kd_weight": kd_w} if teacher is not None else {}),
+                        **({"tc_loss": tc_value} if tc_weight > 0 else {}),
+                        **({"selfsup_loss": ss_value} if selfsup else {})})
         if step == start or (step+1) % train.get("log_every", 1) == 0:
             elapsed = time.monotonic()-started
             status = {**history[-1], "total_steps": steps, "status": "running",

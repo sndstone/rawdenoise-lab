@@ -258,7 +258,8 @@ class BootstrapDataset(Dataset):
                  row_max=.0005, fixed_parameters=None, identity_probability=0.,
                  exposure_range=(.6, 1.), exposure_sampling="linear", exposure_scale=1.,
                  bright_exposure_probability=0., column_relative_max=0., impulse_range=None,
-                 impulse_sigma_range=(3., 30.), impulse_positive=.6):
+                 impulse_sigma_range=(3., 30.), impulse_positive=.6,
+                 lag1_h_range=None, lag1_v_range=None, quantize_bits_choices=None):
         self.entries = load_manifest(manifest) if isinstance(manifest, (str, Path)) else manifest
         if not self.entries:
             raise ValueError("Bootstrap training requires cached source crops")
@@ -287,6 +288,12 @@ class BootstrapDataset(Dataset):
             self.parameters.update(impulse_range=tuple(impulse_range),
                                    impulse_sigma_range=tuple(impulse_sigma_range),
                                    impulse_positive=float(impulse_positive))
+        if lag1_h_range is not None:
+            self.parameters["lag1_h_range"] = tuple(float(v) for v in lag1_h_range)
+        if lag1_v_range is not None:
+            self.parameters["lag1_v_range"] = tuple(float(v) for v in lag1_v_range)
+        if quantize_bits_choices is not None:
+            self.parameters["quantize_bits_choices"] = tuple(int(v) for v in quantize_bits_choices)
 
     def __len__(self):
         return len(self.entries)

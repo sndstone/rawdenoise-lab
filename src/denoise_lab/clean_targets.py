@@ -88,6 +88,25 @@ def iso_coupled_parameters(rng, iso_range=(100., 25600.), K_6400=6.7e-4, read_64
     return {"K": K, "read_std": read, "row_std": float(rng.uniform(0, row_relative_max))*read}, exposure, iso
 
 
+def apply_clip_highlight(clean, exposure_scale, rng, clip_exposure_range=(1.2, 3.0),
+                         clip_ceiling_range=(0.90, 1.09)):
+    """Boost exposure into physical highlight saturation with per-sample ceiling (including >1.0 headroom).
+
+    Returns (unclipped_signal, clipped_target, exposure, c_clip) so shot/read noise
+    is synthesized on the unclipped irradiance BEFORE ADC saturation at c_clip,
+    leaving deeply overexposed cores realistically pinned at c_clip while supervising
+    against clipped_target.
+    """
+    c_clip = float(rng.uniform(*clip_ceiling_range))
+    clo, chi = clip_exposure_range
+    boost = float(np.exp(rng.uniform(np.log(clo), np.log(chi))))
+    p99 = float(np.percentile(clean, 99.5))
+    exposure = min(25.0, float(exposure_scale) * c_clip * boost / max(p99, 0.05))
+    unclipped = (clean * exposure).astype(np.float32)
+    clipped = np.minimum(unclipped, c_clip).astype(np.float32)
+    return unclipped, clipped, exposure, c_clip
+
+
 class BinnedBootstrapDataset(FlatAugmentedBootstrapDataset):
     """FlatAugmentedBootstrapDataset whose reference is binned with bin_probability.
 
@@ -95,7 +114,9 @@ class BinnedBootstrapDataset(FlatAugmentedBootstrapDataset):
     The cached crop must stay at least 2*crop_size sensor pixels after binning.
     """
     def __init__(self, *args, bin_probability=0., bin_factors=(2,), channel_gain_probability=0.,
-                 channel_gain_range=(.4, 2.5), resite=False, iso_coupled=None, noise_map_jitter=None, **kwargs):
+                 channel_gain_range=(.4, 2.5), resite=False, iso_coupled=None, noise_map_jitter=None,
+                 clip_highlight_probability=0., clip_exposure_range=(1.2, 3.0),
+                 clip_ceiling_range=(0.90, 1.09), **kwargs):
         super().__init__(*args, **kwargs)
         # If set, the conditioning map uses only shot/read (what EXIF ISO + our NLF can give at
         # inference) with independent log-normal errors of this sigma on K and read.
@@ -115,6 +136,17 @@ class BinnedBootstrapDataset(FlatAugmentedBootstrapDataset):
         self.bin_factors = tuple(int(f) for f in bin_factors)
         if not self.bin_factors or min(self.bin_factors) < 1:
             raise ValueError("bin_factors must be positive integers")
+        if not 0 <= clip_highlight_probability <= 1:
+            raise ValueError("clip_highlight_probability must be in [0, 1]")
+        clo, chi = clip_exposure_range
+        if not 0 < clo <= chi:
+            raise ValueError("clip_exposure_range must be positive and ordered")
+        cmin, cmax = clip_ceiling_range
+        if not 0 < cmin <= cmax:
+            raise ValueError("clip_ceiling_range must be positive and ordered")
+        self.clip_highlight_probability = float(clip_highlight_probability)
+        self.clip_exposure_range = (float(clo), float(chi))
+        self.clip_ceiling_range = (float(cmin), float(cmax))
 
     def __getitem__(self, index):
         seed = self.seed+index if self.deterministic else int(torch.randint(0, 2**62, ()).item())
@@ -133,26 +165,34 @@ class BinnedBootstrapDataset(FlatAugmentedBootstrapDataset):
             clean = apply_channel_gains(clean, rng, self.channel_gain_range)
         if self.augment and self.flat_probability > 0 and rng.random() < self.flat_probability:
             clean = synthetic_smooth_mosaic(*clean.shape, rng, **self.flat_options)
-        exposure = self.exposure_scale
-        if self.augment:
-            lo, hi = self.exposure_range
-            bright = self.bright_exposure_probability > 0 and rng.random() < self.bright_exposure_probability
-            if bright:
-                exposure *= float(rng.uniform(.6, 1.))
-            else:
-                exposure *= float(np.exp(rng.uniform(np.log(lo), np.log(hi)))
-                                  if self.exposure_sampling == "log" else rng.uniform(lo, hi))
-        coupled = None
-        if self.augment and self.iso_coupled is not None:
-            coupled, exposure, _ = iso_coupled_parameters(rng, **self.iso_coupled)
-            exposure *= self.exposure_scale
-        clean = clean*exposure
+        clip_ceiling = None
+        if self.augment and self.clip_highlight_probability > 0 and rng.random() < self.clip_highlight_probability:
+            signal_for_noise, clean, exposure, clip_ceiling = apply_clip_highlight(
+                clean, self.exposure_scale, rng, self.clip_exposure_range, self.clip_ceiling_range
+            )
+            coupled = iso_coupled_parameters(rng, **self.iso_coupled)[0] if self.iso_coupled is not None else None
+        else:
+            exposure = self.exposure_scale
+            if self.augment:
+                lo, hi = self.exposure_range
+                bright = self.bright_exposure_probability > 0 and rng.random() < self.bright_exposure_probability
+                if bright:
+                    exposure *= float(rng.uniform(.6, 1.))
+                else:
+                    exposure *= float(np.exp(rng.uniform(np.log(lo), np.log(hi)))
+                                      if self.exposure_sampling == "log" else rng.uniform(lo, hi))
+            coupled = None
+            if self.augment and self.iso_coupled is not None:
+                coupled, exposure, _ = iso_coupled_parameters(rng, **self.iso_coupled)
+                exposure *= self.exposure_scale
+            clean = clean*exposure
+            signal_for_noise = clean
         if self.augment and rng.random() < self.identity_probability:
             noisy, parameters = clean.copy(), {"K": 0., "read_std": 0., "row_std": 0.}
         elif coupled is not None:
-            noisy, parameters = add_bootstrap_noise(clean, rng, fixed_parameters=coupled)
+            noisy, parameters = add_bootstrap_noise(signal_for_noise, rng, fixed_parameters=coupled, clip_ceiling=clip_ceiling)
         else:
-            noisy, parameters = add_bootstrap_noise(clean, rng, **self.parameters)
+            noisy, parameters = add_bootstrap_noise(signal_for_noise, rng, clip_ceiling=clip_ceiling, **self.parameters)
         if self.augment and self.defect_probability > 0 and rng.random() < self.defect_probability:
             noisy, _ = inject_defects(noisy, rng, **self.defect_options)
         inp, target = pack(noisy), pack(clean)
@@ -161,4 +201,5 @@ class BinnedBootstrapDataset(FlatAugmentedBootstrapDataset):
             parameters = {"K": parameters["K"]*float(j[0]), "read_std": parameters["read_std"]*float(j[1])}
         std = noise_std(parameters, np.maximum(inp, 0).mean(0, keepdims=True))
         return {"noisy": _tensor(inp), "clean": _tensor(target), "noise_map": _tensor(std),
-                "exposure_scale": exposure, "bin_factor": factor}
+                "exposure_scale": exposure, "bin_factor": factor,
+                "clip_ceiling": float(clip_ceiling if clip_ceiling is not None else 1.0)}

@@ -44,6 +44,12 @@ def compression_config(model, op_config, *, skip_sensitive=True, skip_ops=()):
     if skip_sensitive and not convs:
         raise ValueError("Cannot identify sensitive convolution weights; use --compress-sensitive to override")
     excluded = {convs[0][1], convs[-1][1]} if skip_sensitive else set()
+    # Dual terminal head (output_head="green_split"): protect both ending (3 ch) and ending_gdiff (1 ch).
+    if skip_sensitive and len(convs) >= 3:
+        last_val = getattr(metadata[convs[-1][1]], "val", None)
+        prev_val = getattr(metadata[convs[-2][1]], "val", None)
+        if last_val is not None and prev_val is not None and last_val.shape[0] == 1 and prev_val.shape[0] == 3:
+            excluded.add(convs[-2][1])
     for name, value in metadata.items():
         names = [name] + [child.name for child in value.child_ops or []]
         if any(fnmatch.fnmatchcase(n, pattern) for n in names for pattern in skip_ops):

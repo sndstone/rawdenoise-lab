@@ -89,7 +89,8 @@ def validate_dataset_config(config, arch_study=False, path="data"):
         if any(k in options for k in ("flat_probability", "flat_options", "defect_probability", "defect_options")):
             cls = FlatAugmentedBootstrapDataset
         if any(k in options for k in ("bin_probability", "bin_factors", "channel_gain_probability", "channel_gain_range",
-                                     "resite", "iso_coupled", "noise_map_jitter")):
+                                     "resite", "iso_coupled", "noise_map_jitter",
+                                     "clip_highlight_probability", "clip_exposure_range", "clip_ceiling_range")):
             cls = BinnedBootstrapDataset
     parameters = _keyword_parameters(cls)
     _check_keys(options, parameters, path)
@@ -118,14 +119,19 @@ def validate_config(config, arch_study=False):
     """Fail on unsupported training/dataset settings before model allocation or IO."""
     allowed = {"seed", "threads", "device", "model", "data", "training", "loss"}
     if arch_study:
-        allowed.add("selfsup")
+        allowed.update(("selfsup", "distill"))
     _check_keys(config, allowed, "config")
     training = config["training"]
     allowed = {"steps", "batch_size", "workers", "lr", "min_lr", "weight_decay", "amp", "amp_dtype",
                "identity_init", "grad_clip", "run_dir", "checkpoint_every", "keep_checkpoints", "log_every", "progress"}
     if arch_study:
-        allowed.update(("betas", "warmup_steps", "grad_accum", "ema_decay"))
+        allowed.update(("betas", "warmup_steps", "grad_accum", "ema_decay",
+                        "transpose_consistency_weight", "transpose_consistency_fraction"))
     _check_keys(training, allowed, "training")
+    if "transpose_consistency_weight" in training and float(training["transpose_consistency_weight"]) < 0:
+        raise ValueError("training.transpose_consistency_weight must be nonnegative")
+    if "transpose_consistency_fraction" in training and not 0.0 < float(training["transpose_consistency_fraction"]) <= 1.0:
+        raise ValueError("training.transpose_consistency_fraction must be in (0, 1]")
     amp_dtypes = ("float16", "fp16", "bfloat16", "bf16")
     if not isinstance(training.get("amp", True), bool) and training.get("amp") not in amp_dtypes:
         raise ValueError("training.amp must be boolean or a supported precision: fp16/bf16")
@@ -134,6 +140,22 @@ def validate_config(config, arch_study=False):
     if config.get("selfsup"):
         _check_keys(config["selfsup"], ("manifest", "root", "crop_size", "min_iso", "batch_size", "workers",
                                        "camera_weights", "weight", "gamma"), "selfsup")
+    if config.get("distill"):
+        distill = config["distill"]
+        _check_keys(distill, ("checkpoint", "weights", "weight", "min_weight", "kind", "eps",
+                              "linear_weight", "gamma_weight", "chroma_weight", "chroma_lowpass_weight",
+                              "chroma_lowpass_kernel", "green_balance_weight",
+                              "highlight_chroma_weight", "highlight_threshold",
+                              "green_dc_weight", "green_dc_kernel",
+                              "protect_teacher_highlights"), "distill")
+        if not distill.get("checkpoint"):
+            raise ValueError("distill.checkpoint is required")
+        if distill.get("weights", "model") not in ("model", "ema"):
+            raise ValueError("distill.weights must be model or ema")
+        if not isinstance(distill.get("protect_teacher_highlights", False), bool):
+            raise ValueError("distill.protect_teacher_highlights must be a boolean")
+        if float(distill.get("weight", 0.5)) < 0 or float(distill.get("min_weight", distill.get("weight", 0.5))) < 0:
+            raise ValueError("distill.weight and distill.min_weight must be nonnegative")
     validate_dataset_config(config["data"], arch_study)
 
 
@@ -193,7 +215,10 @@ def main():
     train = cfg["training"]
     if train.get("identity_init", False) and not (args.resume or args.init_checkpoint):
         torch.nn.init.zeros_(model.body.ending.weight)
-        torch.nn.init.zeros_(model.body.ending.bias)
+        if model.body.ending.bias is not None:
+            torch.nn.init.zeros_(model.body.ending.bias)
+        if getattr(model.body, "ending_gdiff", None) is not None:
+            torch.nn.init.zeros_(model.body.ending_gdiff.weight)
     parameter_count(model)
     ds, sampler = dataset(cfg["data"], require_conditioning=model.cond == "noise_map")
     workers = train.get("workers", 0)

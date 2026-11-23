@@ -7,8 +7,20 @@ import urllib.request
 import zipfile
 
 MODELS = {
+    'denoiser_1.1': {
+        'release': 'model-denoiser_1.1-2026-11-22',
+        'snapshot_id': 'mix_r10_r9p20',
+        'assets': {'onnx': 'denoiser_1.1_fp32.onnx', 'pt': 'denoiser_1.1_weights.pt',
+                   'coreml': 'denoiser_1.1_fp16.mlpackage.zip'},
+        'sha256': {
+            'onnx': 'bf9421b7f0c9bde177a0a11c6fd15b4c88066c4e29eef9daf534b20d68f9b820',
+            'pt': '8f470b206294dd118d380a4bf2a25839b17cd9e6fdf0617ac3e95b838f7a5cab'},
+        'cameras': ['X1D II 50C', 'X2D II 100C', 'ILCE-7M3', 'ILCE-5100', 'DSC-RX100M5'],
+        'iso_range': [100, 204800],
+    },
     'r4_plain': {
         'release': 'model-r4_plain-2026-10-30',
+        'snapshot_id': 'r4_w40s4_plain_120k',
         'assets': {'onnx': 'r4_plain_fp32.onnx', 'pt': 'r4_plain_weights.pt',
                    'coreml': 'r4_plain_fp16.mlpackage.zip'},
         'sha256': {
@@ -18,6 +30,7 @@ MODELS = {
         'iso_range': [100, 25600],
     },
 }
+DEFAULT_MODEL = 'denoiser_1.1'
 BASE_URL = 'https://github.com/sndstone/rawdenoise-lab/releases/download'
 
 
@@ -57,7 +70,7 @@ def _download(url, destination):
             shutil.copyfileobj(response, stream)
 
 
-def fetch_model(name='r4_plain', fmt='onnx', directory=Path('models')):
+def fetch_model(name=DEFAULT_MODEL, fmt='onnx', directory=Path('models')):
     """Verify in temporary storage, then publish exclusively; never replace a file."""
     entry = MODELS[name]
     asset = entry['assets'][fmt]

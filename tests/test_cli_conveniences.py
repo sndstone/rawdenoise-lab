@@ -192,11 +192,22 @@ def test_version_and_fetch_dispatch(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit) as result:
         cli.main(['--version'])
     assert result.value.code == 0
-    assert 'rawdenoise 0.1.0' in capsys.readouterr().out
+    assert 'rawdenoise 0.2.0' in capsys.readouterr().out
     calls = []
     monkeypatch.setattr(cli, 'fetch_model', lambda *args: calls.append(args) or tmp_path/'model.onnx')
     cli.main(['fetch-model', '--format', 'pt', '--dir', str(tmp_path)])
-    assert calls == [('r4_plain', 'pt', tmp_path)]
+    assert calls == [('denoiser_1.1', 'pt', tmp_path)]
+
+
+def test_denoiser_1_1_registry_entry():
+    assert registry.DEFAULT_MODEL == 'denoiser_1.1'
+    entry = registry.MODELS['denoiser_1.1']
+    assert entry['snapshot_id'] == 'mix_r10_r9p20'
+    assert entry['sha256']['pt'] == '8f470b206294dd118d380a4bf2a25839b17cd9e6fdf0617ac3e95b838f7a5cab'
+    assert len(entry['sha256']['onnx']) == 64
+    assert {'X1D II 50C', 'X2D II 100C', 'ILCE-7M3', 'ILCE-5100', 'DSC-RX100M5'} <= set(entry['cameras'])
+    assert entry['iso_range'] == [100, 204800]
+    assert 'r4_plain' in registry.MODELS
 
 
 def test_package_hash_is_stable_and_sensitive(tmp_path):

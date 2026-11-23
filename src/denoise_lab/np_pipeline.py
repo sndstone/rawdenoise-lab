@@ -207,7 +207,7 @@ def correct_mapped_defects(packed, mask):
 
 
 def protect_highlights(output, original):
-    """Shared Bayer-cell mask, four max-filter dilations and a float32 white cap."""
+    """Shared Bayer-cell mask, four max-filter dilations and headroom-preserving cap."""
     mask = (original >= .98).any(axis=1, keepdims=True).astype(output.dtype)
     if not mask.any():
         return output
@@ -222,7 +222,7 @@ def protect_highlights(output, original):
         weight += .25*mask
     blended = weight*original+(1-weight)*output
     blended = np.where(weight == 1, original, blended)
-    ceiling = np.where(original < 1, np.float32(1.-2**-24), np.float32(1.))
+    ceiling = np.where(original < 1, np.float32(1.-2**-24), original)
     return np.where(weight > 0, np.minimum(blended, ceiling), output)
 
 
@@ -246,15 +246,7 @@ def chroma_blend(output, original, strength, chroma_strength, gains):
     return original+correction/wb
 
 
-def denoise_packed(model, packed, *, mode, defect_mask, overlap, strength, tile_size,
-                   highlights, offsets, grid_alignment, feather_mode, chroma_strength=None, gains=(1., 1., 1.)):
-    """Run a validated Denoiser request with NumPy arrays throughout."""
-    original = packed[None].copy()
-    image = original
-    if mode in {'map', 'map+heuristic'}:
-        image = correct_mapped_defects(image, defect_mask[None])[0]
-    if mode in {'heuristic', 'map+heuristic'}:
-        image = correct_defects(image)[0]
+def _tiled_passes(model, image, *, tile_size, overlap, offsets, grid_alignment, feather_mode):
     output = None
     for offset in offsets:
         prediction = tiled_inference(model, image, tile_size=tile_size, overlap=overlap,
@@ -263,6 +255,26 @@ def denoise_packed(model, packed, *, mode, defect_mask, overlap, strength, tile_
         output = prediction if output is None else output+prediction
     if len(offsets) > 1:
         output /= len(offsets)
+    return output
+
+
+def denoise_packed(model, packed, *, mode, defect_mask, overlap, strength, tile_size,
+                   highlights, offsets, grid_alignment, feather_mode, chroma_strength=None,
+                   gains=(1., 1., 1.), tta_transpose=False):
+    """Run a validated Denoiser request with NumPy arrays throughout."""
+    original = packed[None].copy()
+    image = original
+    if mode in {'map', 'map+heuristic'}:
+        image = correct_mapped_defects(image, defect_mask[None])[0]
+    if mode in {'heuristic', 'map+heuristic'}:
+        image = correct_defects(image)[0]
+    output = _tiled_passes(model, image, tile_size=tile_size, overlap=overlap,
+                           offsets=offsets, grid_alignment=grid_alignment, feather_mode=feather_mode)
+    if tta_transpose:
+        transposed = np.ascontiguousarray(image[:, [0, 3, 2, 1]].swapaxes(-2, -1))
+        out_t = _tiled_passes(model, transposed, tile_size=tile_size, overlap=overlap,
+                              offsets=offsets, grid_alignment=grid_alignment, feather_mode=feather_mode)
+        output = .5*(output + np.ascontiguousarray(out_t[:, [0, 3, 2, 1]].swapaxes(-2, -1)))
     output = chroma_blend(output, original, strength,
                           strength if chroma_strength is None else chroma_strength, gains)
     if not np.isfinite(output).all():

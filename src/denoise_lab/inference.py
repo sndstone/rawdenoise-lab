@@ -35,14 +35,17 @@ def build_model(config):
     return build(config)
 
 
-def protect_highlights(output, original):
+def protect_highlights(output, original, threshold=.98, ceiling_max=None):
     """Protect normalized Bx4xHxW Bayer data (each channel's white is 1).
 
-    Any photosite >= .98 seeds a shared Bayer-cell mask, preserving colour
-    ratios rather than blending each plane differently. Preserve the original
-    within one packed pixel, then feather over three more (eight sensor pixels
-    in total). Only that footprint is capped at white; originally unclipped
-    sites stay below white. Negative values and the rest of the image survive.
+    Any photosite >= threshold (default .98) seeds a shared Bayer-cell mask,
+    preserving colour ratios rather than blending each plane differently.
+    Preserve the original within one packed pixel, then feather over three more
+    (eight sensor pixels in total). Within that footprint, originally unclipped
+    sites stay strictly below white (or ceiling_max when specified for synthetic
+    ceilings < 1.0) while sites already at or above white are capped at their
+    own original headroom (preserving >1.0 sensor codes such as Sony/X2D
+    headroom). Negative values and the rest of the image survive.
     This deliberately retains input noise near clipping; it cannot recover
     clipped colour. Use the pre-pass-corrected input as original so protection
     does not restore known saturated defects. With no pre-pass, use raw input.
@@ -50,7 +53,7 @@ def protect_highlights(output, original):
     import torch
     from torch.nn import functional as F
 
-    mask = (original >= .98).any(dim=1, keepdim=True).to(output.dtype)
+    mask = (original >= threshold).any(dim=1, keepdim=True).to(output.dtype)
     if not mask.any():
         return output
     weight = torch.zeros_like(mask)
@@ -58,9 +61,13 @@ def protect_highlights(output, original):
         mask = F.max_pool2d(mask, 3, stride=1, padding=1)
         weight += .25*mask
     blended = weight*original + (1-weight)*output
-    # Keep the original exactly in the core, including near-white photosites.
+    # Keep the original exactly in the core, including >1.0 sensor headroom.
     blended = torch.where(weight == 1, original, blended)
-    ceiling = torch.where(original < 1, 1.-2**-24, 1.)
+    if ceiling_max is None:
+        ceiling = torch.where(original < 1, 1.-2**-24, original)
+    else:
+        c_lim = ceiling_max if torch.is_tensor(ceiling_max) else original.new_tensor(ceiling_max)
+        ceiling = torch.where(original < c_lim, c_lim - 2**-24, original)
     return torch.where(weight > 0, torch.minimum(blended, ceiling), output)
 
 
@@ -171,7 +178,7 @@ class Denoiser:
     def denoise_packed(self, packed, *, prepass=True, defect_mask=None, overlap=DEFAULT_OVERLAP,
                        strength=1., tile_size=DEFAULT_TILE_SIZE, highlights="protect",
                        grid_alignment=DEFAULT_GRID_ALIGNMENT, feather_mode=DEFAULT_FEATHER_MODE,
-                       tta_shift=DEFAULT_TTA_SHIFT,
+                       tta_shift=DEFAULT_TTA_SHIFT, tta_transpose=False,
                        chroma_strength=None, white_balance=None):
         """Denoise float32 R/G1/B/G2 with per-channel white normalized to 1.
 
@@ -180,6 +187,8 @@ class Denoiser:
         highlights='off' preserves the legacy processing path exactly.
         tta_shift>1 averages N diagonal tile grids (about N model passes); it
         reduces phase variance without guaranteeing invariance.
+        tta_transpose=True averages the original pass with an exact Bayer-transposed
+        (G1<->G2) pass (2x model work) to suppress G1/G2 asymmetry and foliage grids.
         chroma_strength (default = strength) blends chroma separately per Bayer
         cell in WB-scaled opponent space Y=(R+2G+B)/4, Cb=B-Y, Cr=R-Y; G1-G2
         follows luma strength. white_balance is positive RGB gains (unity default).
@@ -212,6 +221,8 @@ class Denoiser:
                 raise ValueError('Defect mask must be bool with the packed input shape')
         if highlights not in {"protect", "off"}:
             raise ValueError("highlights must be protect or off")
+        if not isinstance(tta_transpose, bool):
+            raise ValueError("tta_transpose must be a bool")
         offsets = shift_offsets(tile_size, overlap, grid_alignment, tta_shift)
         if feather_mode not in ("linear", "cosine"):
             raise ValueError("feather_mode must be linear or cosine")
@@ -223,15 +234,17 @@ class Denoiser:
                                   overlap=overlap, strength=strength, tile_size=tile_size,
                                   highlights=highlights, offsets=offsets,
                                   grid_alignment=grid_alignment, feather_mode=feather_mode,
-                                  chroma_strength=chroma_strength, gains=gains)
+                                  chroma_strength=chroma_strength, gains=gains,
+                                  tta_transpose=tta_transpose)
         import torch
         with torch.inference_mode():
             return self._denoise_torch(packed, mode, defect_mask, overlap, strength, tile_size,
                                        highlights, offsets, grid_alignment, feather_mode,
-                                       chroma_strength, gains)
+                                       chroma_strength, gains, tta_transpose)
 
     def _denoise_torch(self, packed, mode, defect_mask, overlap, strength, tile_size,
-                       highlights, offsets, grid_alignment, feather_mode, chroma_strength, gains):
+                       highlights, offsets, grid_alignment, feather_mode, chroma_strength, gains,
+                       tta_transpose=False):
         import torch
         from .defects import correct_defects, correct_mapped_defects
         from .tiling import tiled_inference
@@ -243,14 +256,23 @@ class Denoiser:
             image = correct_mapped_defects(image, mask)[0]
         if mode in {'heuristic', 'map+heuristic'}:
             image = correct_defects(image, k=8, abs_floor=.01, adjacency_ratio=.1)[0]
-        output = None
-        for offset in offsets:
-            prediction = tiled_inference(self._call, image, tile_size=tile_size, overlap=overlap,
-                                         feather_power=DEFAULT_FEATHER_POWER, grid_offset=offset, grid_alignment=grid_alignment,
-                                         feather_mode=feather_mode)
-            output = prediction if output is None else output + prediction
-        if len(offsets) > 1:
-            output /= len(offsets)
+
+        def run_passes(inp):
+            acc = None
+            for offset in offsets:
+                prediction = tiled_inference(self._call, inp, tile_size=tile_size, overlap=overlap,
+                                             feather_power=DEFAULT_FEATHER_POWER, grid_offset=offset,
+                                             grid_alignment=grid_alignment, feather_mode=feather_mode)
+                acc = prediction if acc is None else acc + prediction
+            if len(offsets) > 1:
+                acc /= len(offsets)
+            return acc
+
+        output = run_passes(image)
+        if tta_transpose:
+            transposed = image[:, [0, 3, 2, 1]].transpose(-2, -1).contiguous()
+            out_t = run_passes(transposed)
+            output = .5*(output + out_t[:, [0, 3, 2, 1]].transpose(-2, -1).contiguous())
         if chroma_strength == strength:
             output = strength*output + (1-strength)*original
         else:

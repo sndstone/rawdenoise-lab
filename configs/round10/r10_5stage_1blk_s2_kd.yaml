@@ -1,0 +1,231 @@
+# Round 10 Stage 2 (Council F6): Fixed 11.44 ms 5-Stage 1-Block Architecture
+# with Clipped-Highlight & >1.0 Headroom Augmentation, Highlight-Weighted Opponent
+# Chroma Loss, Pooled DC G1-G2 Balance Loss, Protected-Teacher KD, and Bayer
+# Transpose-Consistency Loss.
+data:
+  kind: mixed
+  probabilities:
+  - 0.60
+  - 0.15
+  - 0.10
+  - 0.07
+  - 0.08
+  sources:
+  - augment: true
+    bin_factors: [2]
+    bin_probability: 0.0
+    bright_exposure_probability: 0.5
+    channel_gain_probability: 0.5
+    channel_gain_range: [0.4, 2.5]
+    clip_highlight_probability: 0.12
+    clip_exposure_range: [1.2, 3.0]
+    clip_ceiling_range: [0.90, 1.09]
+    column_relative_max: 0.15
+    crop_size: 128
+    defect_options:
+      density_range: [1.0e-05, 0.0003]
+    defect_probability: 0.5
+    exposure_range: [0.015625, 1]
+    exposure_sampling: log
+    flat_options:
+      equal_probability: 0.35
+      gradient_max: 0.3
+      gradient_probability: 0.5
+      level_range: [0.001, 0.98]
+      ratio_range: [0.3, 1.6]
+    flat_probability: 0.06
+    identity_probability: 0.05
+    impulse_range: [1.0e-05, 0.005]
+    impulse_sigma_range: [3.0, 30.0]
+    kind: bootstrap
+    manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+    read_range: [3.0e-05, 0.006]
+    resite: false
+    root: data
+    row_max: 0.0005
+    shot_range: [1.0e-05, 0.002]
+  - augment: true
+    bin_factors: [2]
+    bin_probability: 0.0
+    bright_exposure_probability: 0.35
+    channel_gain_probability: 0.5
+    channel_gain_range: [0.4, 2.5]
+    clip_highlight_probability: 0.12
+    clip_exposure_range: [1.2, 3.0]
+    clip_ceiling_range: [0.90, 1.09]
+    column_relative_max: 0.25
+    crop_size: 128
+    defect_options:
+      density_range: [1.0e-05, 0.0004]
+    defect_probability: 0.5
+    exposure_range: [0.015625, 1]
+    exposure_sampling: log
+    flat_options:
+      equal_probability: 0.35
+      gradient_max: 0.3
+      gradient_probability: 0.5
+      level_range: [0.001, 0.98]
+      ratio_range: [0.3, 1.6]
+    flat_probability: 0.04
+    identity_probability: 0.04
+    impulse_range: [1.0e-05, 0.008]
+    impulse_sigma_range: [3.0, 35.0]
+    kind: bootstrap
+    lag1_h_range: [0.0, 0.22]
+    lag1_v_range: [0.0, 0.08]
+    manifest: data/bootstrap_binned_a7/a7m3_bin4_train.json
+    quantize_bits_choices: [12, 14, 16]
+    read_range: [0.002, 0.022]
+    resite: false
+    root: data
+    row_max: 0.002
+    shot_range: [0.001, 0.022]
+  - augment: true
+    crop_size: 128
+    root: data
+    exposure_range: &exp_range [0.015625, 1]
+    exposure_sampling: log
+    bright_exposure_probability: 0.5
+    identity_probability: 0.05
+    channel_gain_probability: 0.5
+    channel_gain_range: &cg_range [0.4, 2.5]
+    clip_highlight_probability: 0.12
+    clip_exposure_range: &clip_exp [1.2, 3.0]
+    clip_ceiling_range: &clip_ceil [0.90, 1.09]
+    bin_probability: 0.0
+    bin_factors: &bf [2]
+    defect_probability: 0.5
+    defect_options: &def_opts
+      density_range: [1.0e-05, 0.0003]
+    resite: false
+    kind: camera
+    manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+    calibration: calib/darks_physnoise_20261101.yaml
+    cameras:
+      x1d2: 0.50
+      x1d2_electronic: 0.10
+      a7m3: 0.20
+      a5100: 0.20
+    camera_options: &cam_opts
+      K_jitter_log: 0.3
+      read_jitter_log: 0.15
+      processed_probability: 0.12
+      physics_options:
+        banding: true
+        quantization: true
+        horizontal_correlation: true
+        vertical_correlation: true
+        moment_read: true
+        fixed_seed: 20261121
+    gain_cap_iso: &gcap
+      x1d2: 6400
+      x1d2_electronic: 6400
+  - augment: true
+    crop_size: 128
+    root: data
+    exposure_range: *exp_range
+    exposure_sampling: log
+    bright_exposure_probability: 0.5
+    identity_probability: 0.05
+    channel_gain_probability: 0.5
+    channel_gain_range: *cg_range
+    clip_highlight_probability: 0.12
+    clip_exposure_range: *clip_exp
+    clip_ceiling_range: *clip_ceil
+    bin_probability: 0.0
+    bin_factors: *bf
+    defect_probability: 0.5
+    defect_options: *def_opts
+    resite: false
+    kind: camera
+    manifest: data/bootstrap_binned/x1d2_bin2_train_r4.json
+    calibration: calib/darks_physnoise_20261101.yaml
+    cameras:
+      x1d2: 0.55
+      x1d2_electronic: 0.10
+      a7m3: 0.20
+      a5100: 0.15
+    camera_options: *cam_opts
+    gain_cap_iso: *gcap
+  - augment: true
+    crop_size: 128
+    root: data
+    exposure_range: *exp_range
+    exposure_sampling: log
+    bright_exposure_probability: 0.5
+    identity_probability: 0.05
+    channel_gain_probability: 0.5
+    channel_gain_range: *cg_range
+    clip_highlight_probability: 0.12
+    clip_exposure_range: *clip_exp
+    clip_ceiling_range: *clip_ceil
+    bin_probability: 0.0
+    bin_factors: *bf
+    defect_probability: 0.5
+    defect_options: *def_opts
+    resite: false
+    kind: camera
+    manifest: data/bootstrap_binned_a7/a7m3_bin4_train.json
+    calibration: calib/darks_physnoise_20261101.yaml
+    cameras:
+      a7m3: 0.50
+      a5100: 0.50
+    camera_options: *cam_opts
+    gain_cap_iso: *gcap
+device: mps
+distill:
+  checkpoint: runs/photo_high_iso_speed/r10_eval/mix_r10_r9p20.pt
+  weights: model
+  weight: 0.45
+  min_weight: 0.15
+  linear_weight: 1.0
+  gamma_weight: 0.25
+  chroma_weight: 0.04
+  highlight_chroma_weight: 0.10
+  highlight_threshold: 0.75
+  protect_teacher_highlights: true
+  eps: 1.0e-05
+loss:
+  kind: charbonnier
+  eps: 1.0e-05
+  linear_weight: 1.0
+  gamma_weight: 0.25
+  chroma_weight: 0.04
+  chroma_lowpass_weight: 0.06
+  chroma_lowpass_kernel: 4
+  highlight_chroma_weight: 0.15
+  highlight_threshold: 0.75
+  green_balance_weight: 0.02
+  green_dc_weight: 0.05
+  green_dc_kernel: 16
+model:
+  arch: nafnet
+  cond: none
+  width: 24
+  stage_widths: [24, 64, 128, 256, 512, 512]
+  enc_blk_nums: [1, 1, 2, 3, 4]
+  middle_blk_num: 6
+  dec_blk_nums: [1, 1, 1, 1, 1]
+seed: 20261123
+threads: 2
+training:
+  amp: bf16
+  batch_size: 16
+  betas: [0.9, 0.99]
+  checkpoint_every: 6000
+  ema_decay: 0.999
+  grad_accum: 1
+  grad_clip: 1.0
+  identity_init: true
+  keep_checkpoints: 2
+  log_every: 250
+  lr: 0.00015
+  min_lr: 1.0e-06
+  progress: false
+  run_dir: runs/photo_high_iso_speed/r10_5stage_1blk_s2_kd
+  steps: 12000
+  transpose_consistency_weight: 0.08
+  transpose_consistency_fraction: 0.25
+  warmup_steps: 500
+  weight_decay: 0.0001
+  workers: 4

@@ -33,15 +33,20 @@ def screen_crop(mosaic):
 
 def add_bootstrap_noise(clean, rng, shot_range=(1e-5, 1e-3), read_range=(1e-4, .004),
                         row_max=.0005, fixed_parameters=None, column_relative_max=0.,
-                        impulse_range=None, impulse_sigma_range=(3., 30.), impulse_positive=.6):
+                        impulse_range=None, impulse_sigma_range=(3., 30.), impulse_positive=.6,
+                        lag1_h_range=None, lag1_v_range=None, quantize_bits_choices=None,
+                        clip_ceiling=None):
     """A broad shot/read/row prior; parameters are not measured camera/ISO profiles.
 
     Optional structural components (off by default, preserving the original
     random stream): per-column offsets with std U(0, column_relative_max)*read,
-    and sparse impulses with per-pixel probability log-U(impulse_range) and
-    amplitude log-U(impulse_sigma_range)*read (positive with impulse_positive).
+    sparse impulses with per-pixel probability log-U(impulse_range) and
+    amplitude log-U(impulse_sigma_range)*read (positive with impulse_positive),
+    same-colour horizontal/vertical read correlation lag1_h_range/lag1_v_range,
+    and bit-depth quantisation quantize_bits_choices (e.g. (12, 14, 16))
+    preserving negative signed residuals.
     Their envelopes are uncalibrated; motivated by heavy-tailed optical-black
-    statistics, not fitted to any third-party output.
+    and small-sensor statistics, not fitted to any third-party output.
     """
     if fixed_parameters is None:
         K = float(np.exp(rng.uniform(*np.log(shot_range))))
@@ -55,7 +60,21 @@ def add_bootstrap_noise(clean, rng, shot_range=(1e-5, 1e-3), read_range=(1e-4, .
         p_imp = float(fixed_parameters.get("impulse_p", 0.))
     positive = np.maximum(clean, 0)
     noisy = rng.poisson(positive/K)*K + clean-positive
-    noisy += rng.normal(0, read, clean.shape)
+    read_noise = rng.normal(0, read, clean.shape)
+    lag1_h = float(fixed_parameters.get("lag1_h", 0.)) if fixed_parameters is not None else (
+        float(rng.uniform(*lag1_h_range)) if lag1_h_range is not None else 0.)
+    lag1_v = float(fixed_parameters.get("lag1_v", 0.)) if fixed_parameters is not None else (
+        float(rng.uniform(*lag1_v_range)) if lag1_v_range is not None else 0.)
+    if lag1_h or lag1_v:
+        from .bayer import pack, unpack
+        from .physics_noise import correlate
+        packed_read = pack(read_noise)
+        if lag1_h:
+            packed_read = correlate(packed_read, lag1_h, axis=-1)
+        if lag1_v:
+            packed_read = correlate(packed_read, lag1_v, axis=-2)
+        read_noise = unpack(packed_read)
+    noisy += read_noise
     noisy += rng.normal(0, row, (clean.shape[0], 1))
     if col:
         noisy += rng.normal(0, col, (1, clean.shape[1]))
@@ -65,9 +84,27 @@ def add_bootstrap_noise(clean, rng, shot_range=(1e-5, 1e-3), read_range=(1e-4, .
         amp = np.exp(rng.uniform(*np.log(impulse_sigma_range), n))*read
         sign = np.where(rng.random(n) < impulse_positive, 1., -1.)
         noisy[hit] += amp*sign
+    bits = (fixed_parameters.get("quantize_bits") if fixed_parameters is not None else (
+        int(quantize_bits_choices[int(rng.integers(len(quantize_bits_choices)))])
+        if quantize_bits_choices else None))
+    if bits is not None:
+        step = 1.0 / (2**int(bits) - 1)
+        lower = float(np.ceil(-0.1 / step) * step)
+        raw_upper = float(clip_ceiling) if clip_ceiling is not None else 1.0
+        # Snap saturation ceiling down and lower floor inward to representable code steps.
+        upper = float(np.floor(raw_upper / step) * step) if clip_ceiling is not None else 1.0
+        noisy = np.clip(np.round(noisy / step) * step, lower, upper)
+    elif clip_ceiling is not None:
+        noisy = np.minimum(noisy, float(clip_ceiling))
     parameters = {"K": K, "read_std": read, "row_std": row}
     if column_relative_max or col:
         parameters["col_std"] = col
     if impulse_range or p_imp:
         parameters["impulse_p"] = p_imp
+    if lag1_h_range is not None or lag1_h:
+        parameters["lag1_h"] = lag1_h
+    if lag1_v_range is not None or lag1_v:
+        parameters["lag1_v"] = lag1_v
+    if bits is not None:
+        parameters["quantize_bits"] = int(bits)
     return noisy.astype(np.float32), parameters

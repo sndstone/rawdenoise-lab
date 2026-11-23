@@ -1,0 +1,194 @@
+# Round 10: Small-Sensor & High-ISO Quality Recipe (drop-in w40 NAFNet).
+# Initialize from r4_plain for fine-tuning, or train from random initialization for scratch confirmation.
+# Key upgrades over Round 8/9:
+#   1) Preserves 50% explicit defect injection across ALL sources (broad + small-sensor + camera physics).
+#   2) Preserves core r4_plain broad prior (55%) so low/mid-ISO & X1D II density is never diluted.
+#   3) Adds 15% dedicated small-sensor & extreme-ISO broad-physics source (K up to 2.2e-2, read up to 2.2e-2,
+#      12/14/16-bit quantization, horizontal/vertical lag-1 read correlation, heavy banding & impulses).
+#   4) Raises measured camera-physics small-sensor weight (a5100 + a7m3 + processed_probability=0.12).
+#   5) Adds WB-normalized gamma-domain opponent (Cb, Cr) + 4x4 lowpass blotch + G1-G2 green balance loss.
+data:
+  kind: mixed
+  probabilities:
+  - 0.60
+  - 0.15
+  - 0.10
+  - 0.07
+  - 0.08
+  sources:
+  # Source 0 (55%): Core r4_plain broad prior (unchanged operating range)
+  - augment: true
+    bin_factors: [2]
+    bin_probability: 0.0
+    bright_exposure_probability: 0.5
+    channel_gain_probability: 0.5
+    channel_gain_range: [0.4, 2.5]
+    column_relative_max: 0.15
+    crop_size: 128
+    defect_options:
+      density_range: [1.0e-05, 0.0003]
+    defect_probability: 0.5
+    exposure_range: [0.015625, 1]
+    exposure_sampling: log
+    identity_probability: 0.03
+    impulse_range: [1.0e-05, 0.005]
+    impulse_sigma_range: [3.0, 30.0]
+    kind: bootstrap
+    manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+    read_range: [3.0e-05, 0.006]
+    resite: false
+    root: data
+    row_max: 0.0005
+    shot_range: [1.0e-05, 0.002]
+  # Source 1 (15%): Dedicated small-sensor & extreme-ISO broad-physics envelope
+  # Covers RX100 V (1-inch), A5100 (APS-C 12-bit), A7 III ISO 25600-204800, and unseen 12/14-bit sensors.
+  - augment: true
+    bin_factors: [2]
+    bin_probability: 0.0
+    bright_exposure_probability: 0.35
+    channel_gain_probability: 0.5
+    channel_gain_range: [0.4, 2.5]
+    column_relative_max: 0.25
+    crop_size: 128
+    defect_options:
+      density_range: [1.0e-05, 0.0004]
+    defect_probability: 0.5
+    exposure_range: [0.015625, 1]
+    exposure_sampling: log
+    identity_probability: 0.02
+    impulse_range: [1.0e-05, 0.008]
+    impulse_sigma_range: [3.0, 35.0]
+    kind: bootstrap
+    lag1_h_range: [0.0, 0.22]
+    lag1_v_range: [0.0, 0.08]
+    manifest: data/bootstrap_binned_a7/a7m3_bin4_train.json
+    quantize_bits_choices: [12, 14, 16]
+    read_range: [0.002, 0.022]
+    resite: false
+    root: data
+    row_max: 0.002
+    shot_range: [0.001, 0.022]
+  # Source 2 (12%): Measured camera physics on X1D II bin4 clean targets (WITH 50% defect injection)
+  - augment: true
+    crop_size: 128
+    root: data
+    exposure_range: &exp_range [0.015625, 1]
+    exposure_sampling: log
+    bright_exposure_probability: 0.5
+    identity_probability: 0.03
+    channel_gain_probability: 0.5
+    channel_gain_range: &cg_range [0.4, 2.5]
+    bin_probability: 0.0
+    bin_factors: &bf [2]
+    defect_probability: 0.5
+    defect_options: &def_opts
+      density_range: [1.0e-05, 0.0003]
+    resite: false
+    kind: camera
+    manifest: data/bootstrap_binned/x1d2_bin4_train_r4.json
+    calibration: calib/darks_physnoise_20261101.yaml
+    cameras:
+      x1d2: 0.50
+      x1d2_electronic: 0.10
+      a7m3: 0.20
+      a5100: 0.20
+    camera_options: &cam_opts
+      K_jitter_log: 0.3
+      read_jitter_log: 0.15
+      processed_probability: 0.12
+      physics_options:
+        banding: true
+        quantization: true
+        horizontal_correlation: true
+        vertical_correlation: true
+        moment_read: true
+        fixed_seed: 20261121
+    gain_cap_iso: &gcap
+      x1d2: 6400
+      x1d2_electronic: 6400
+  # Source 3 (8%): Measured camera physics on X1D II bin2 native-detail clean targets
+  - augment: true
+    crop_size: 128
+    root: data
+    exposure_range: *exp_range
+    exposure_sampling: log
+    bright_exposure_probability: 0.5
+    identity_probability: 0.03
+    channel_gain_probability: 0.5
+    channel_gain_range: *cg_range
+    bin_probability: 0.0
+    bin_factors: *bf
+    defect_probability: 0.5
+    defect_options: *def_opts
+    resite: false
+    kind: camera
+    manifest: data/bootstrap_binned/x1d2_bin2_train_r4.json
+    calibration: calib/darks_physnoise_20261101.yaml
+    cameras:
+      x1d2: 0.55
+      x1d2_electronic: 0.10
+      a7m3: 0.20
+      a5100: 0.15
+    camera_options: *cam_opts
+    gain_cap_iso: *gcap
+  # Source 4 (10%): Measured camera physics on A7 III bin4 targets, focused on A5100 & A7 III
+  - augment: true
+    crop_size: 128
+    root: data
+    exposure_range: *exp_range
+    exposure_sampling: log
+    bright_exposure_probability: 0.5
+    identity_probability: 0.03
+    channel_gain_probability: 0.5
+    channel_gain_range: *cg_range
+    bin_probability: 0.0
+    bin_factors: *bf
+    defect_probability: 0.5
+    defect_options: *def_opts
+    resite: false
+    kind: camera
+    manifest: data/bootstrap_binned_a7/a7m3_bin4_train.json
+    calibration: calib/darks_physnoise_20261101.yaml
+    cameras:
+      a7m3: 0.50
+      a5100: 0.50
+    camera_options: *cam_opts
+    gain_cap_iso: *gcap
+device: cuda:0
+loss:
+  kind: charbonnier
+  eps: 1.0e-05
+  linear_weight: 1.0
+  gamma_weight: 0.25
+  chroma_weight: 0.04
+  chroma_lowpass_weight: 0.06
+  chroma_lowpass_kernel: 4
+  green_balance_weight: 0.02
+model:
+  arch: nafnet
+  cond: none
+  width: 40
+  enc_blk_nums: [1, 1, 2, 4]
+  middle_blk_num: 6
+  dec_blk_nums: [1, 1, 1, 1]
+seed: 20261121
+threads: 2
+training:
+  amp: bf16
+  batch_size: 16
+  betas: [0.9, 0.99]
+  checkpoint_every: 24000
+  ema_decay: 0.999
+  grad_accum: 1
+  grad_clip: 1.0
+  identity_init: false
+  keep_checkpoints: 1
+  log_every: 250
+  lr: 0.0001
+  min_lr: 1.0e-06
+  progress: false
+  run_dir: runs/photo_high_iso_speed/r10_small_sensor_w40
+  steps: 24000
+  warmup_steps: 500
+  weight_decay: 0.0001
+  workers: 6

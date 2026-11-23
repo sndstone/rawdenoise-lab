@@ -5,7 +5,6 @@ import json
 import sys
 import warnings
 import zipfile
-from importlib.metadata import version
 from pathlib import Path
 import time
 
@@ -13,10 +12,11 @@ import numpy as np
 import rawpy
 import tifffile
 
+from denoise_lab import __version__
 from denoise_lab.bayer import PHASES, normalize_raw, pack, unpack
 from denoise_lab.dng import RawMetadata, sensor_codes, write_dng
 from denoise_lab.inference import Denoiser, COREML_COMPUTE_UNITS, DEFAULT_OVERLAP
-from denoise_lab.models_registry import MODELS, fetch_model, model_hash, resolve_model
+from denoise_lab.models_registry import DEFAULT_MODEL, MODELS, fetch_model, model_hash, resolve_model
 from denoise_lab.defects import (load_defect_map, find_defect_map, defect_map_mask,
                                  raw_defect_metadata)
 
@@ -43,7 +43,7 @@ def discover_inputs(inputs, recursive=False, pattern='*'):
 
 def fetch_main(argv=None):
     parser = argparse.ArgumentParser(description='Download and verify a released model over HTTPS')
-    parser.add_argument('--name', choices=MODELS, default='r4_plain')
+    parser.add_argument('--name', choices=MODELS, default=DEFAULT_MODEL)
     parser.add_argument('--format', choices=['onnx', 'pt', 'coreml'], default='onnx')
     parser.add_argument('--dir', type=Path, default=Path('models'))
     args = parser.parse_args(argv)
@@ -59,15 +59,15 @@ def main(argv=None):
         return fetch_main(argv[1:])
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        epilog="Example: rawdenoise photo.dng --model r4_plain --device cpu. Download: rawdenoise fetch-model --help")
-    parser.add_argument("--version", action="version", version=f"rawdenoise {version('denoise_lab')}")
+        epilog=f"Example: rawdenoise photo.dng --model {DEFAULT_MODEL} --device cpu. Download: rawdenoise fetch-model --help")
+    parser.add_argument("--version", action="version", version=f"rawdenoise {__version__}")
     parser.add_argument("--recursive", action="store_true", help="Search subdirectories of folder inputs")
     parser.add_argument("--glob", default="*", help="Folder glob filter, in addition to RAW extension detection")
     parser.add_argument("--skip-existing", action="store_true", help="Skip existing outputs instead of failing")
     parser.add_argument("--report", type=Path, help="Write a JSON processing report (never overwrite)")
     parser.add_argument("--chroma-strength", type=float, help="Chroma blend in [0,1]; defaults to --strength")
     parser.add_argument("inputs", nargs="+", type=Path, help="One or more Bayer RAW files or folders")
-    parser.add_argument("--model", required=True, type=Path, help="Model file (.pt, .onnx, .mlpackage) or registry name such as r4_plain")
+    parser.add_argument("--model", required=True, type=Path, help=f"Model file (.pt, .onnx, .mlpackage) or registry name such as {DEFAULT_MODEL}")
     parser.add_argument("--output-dir", type=Path, help="Default: beside each input with _denoised suffix")
     parser.add_argument("--format", choices=["dng", "tiff", "npy"], default="dng", help="DNG mosaic, rendered 16-bit sRGB TIFF, or normalized float32 NPY")
     parser.add_argument("--metadata", choices=["full", "minimal"], default="full", help="Preserve standard EXIF/GPS and DNG colour metadata, or use the legacy minimal writer")
@@ -88,6 +88,8 @@ def main(argv=None):
     parser.add_argument("--align-tiles", action="store_true", help="Align tile origins to 16 packed pixels; round overlap up to a multiple of 16")
     parser.add_argument("--feather-mode", choices=["linear", "cosine"], default="linear", help="Tile blending window (experimental cosine option)")
     parser.add_argument("--tta-shift", type=int, default=1, help="Average N diagonal tile-grid offsets; roughly N times the model work")
+    parser.add_argument("--tta-transpose", action="store_true",
+                        help="Average original and Bayer-transposed (G1<->G2) passes to suppress foliage maze/grid; 2x model work")
     parser.add_argument("--strength", type=float, default=1., help="Blend processed result with input: 0 preserves input, 1 applies full processing")
     args = parser.parse_args(argv)
     args.chroma_strength = args.strength if args.chroma_strength is None else args.chroma_strength
@@ -183,7 +185,8 @@ def main(argv=None):
                         packed, prepass=mode, defect_mask=mask, overlap=args.overlap,
                         strength=args.strength, chroma_strength=args.chroma_strength,
                         white_balance=1/np.asarray(meta.neutral), highlights=args.highlights,
-                        grid_alignment=alignment, feather_mode=args.feather_mode, tta_shift=args.tta_shift)
+                        grid_alignment=alignment, feather_mode=args.feather_mode,
+                        tta_shift=args.tta_shift, tta_transpose=args.tta_transpose)
                 for warning in runtime_warnings:
                     record['warnings'].append(str(warning.message))
                     print(f'  WARNING: {warning.message}', flush=True)

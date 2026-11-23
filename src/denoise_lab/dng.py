@@ -176,10 +176,8 @@ def write_dng(path, mosaic, metadata, *, normalized=True, metadata_mode="full", 
     for name, code in [('exif', 34664), ('gps', 34852)]:
         if metadata.source_tags[name]:
             tags.append(tag(code, 'I', 1, 0))
-    try:
-        software = f'rawdenoise {version("denoise_lab")}'
-    except PackageNotFoundError:
-        software = 'rawdenoise 0.1.0'
+    from denoise_lab import __version__
+    software = f'rawdenoise {__version__}'
     preview = preview and min(codes.shape) >= 2
     with tifffile.TiffWriter(Path(path), byteorder='<') as writer:
         writer.write(codes, photometric=32803, metadata=None, extratags=tags,
