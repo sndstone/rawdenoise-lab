@@ -1,0 +1,1653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RAW Denoiser (r4_plain) & PhotoSRv2 2× Super-Resolution — 12-Photo Interactive Explorer</title>
+<script>
+(function() {
+  // Populate fallback theme variables only when opened standalone outside T3 Code.
+  var root = document.documentElement;
+  var fg = getComputedStyle(root).getPropertyValue("--foreground").trim();
+  if (!fg) {
+    var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? false : true;
+    var vars = dark ? {
+      "--background": "#0e1014",
+      "--foreground": "#edf0f5",
+      "--card": "#151922",
+      "--secondary": "#1c222e",
+      "--muted": "#232a38",
+      "--muted-foreground": "#9aa4b5",
+      "--border": "#2a3344",
+      "--accent": "#4f8cff",
+      "--accent-surface": "rgba(79,140,255,0.14)",
+      "--code-background": "#1f2633",
+      "--chart-1": "#5b9bff",
+      "--chart-2": "#34d399",
+      "--chart-3": "#fbbf24",
+      "--chart-4": "#a78bfa",
+      "--chart-5": "#f472b6",
+      "--chart-6": "#38bdf8",
+      "--radius": "10px",
+      "--font-sans": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif",
+      "--font-mono": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+    } : {
+      "--background": "#ffffff",
+      "--foreground": "#111827",
+      "--card": "#f8fafc",
+      "--secondary": "#eef2f6",
+      "--muted": "#e5e9f0",
+      "--muted-foreground": "#4b5563",
+      "--border": "#d1d5db",
+      "--accent": "#2563eb",
+      "--accent-surface": "rgba(37,99,235,0.10)",
+      "--code-background": "#e5e7eb",
+      "--chart-1": "#2563eb",
+      "--chart-2": "#059669",
+      "--chart-3": "#d97706",
+      "--chart-4": "#7c3aed",
+      "--chart-5": "#db2777",
+      "--chart-6": "#0284c7",
+      "--radius": "10px",
+      "--font-sans": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif",
+      "--font-mono": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+    };
+    for (var k in vars) root.style.setProperty(k, vars[k]);
+    document.addEventListener("DOMContentLoaded", function() {
+      document.body.style.background = "var(--background)";
+      document.body.style.padding = "20px";
+      document.body.style.maxWidth = "1360px";
+      document.body.style.margin = "0 auto";
+      document.documentElement.classList.add("standalone");
+    });
+  }
+})();
+</script>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    line-height: 1.44;
+  }
+  .wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    width: 100%;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 15px 16px;
+  }
+  .head-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 9px;
+  }
+  .title {
+    font-size: 14.5px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    color: var(--foreground);
+  }
+  .sub {
+    font-size: 11px;
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+  }
+  .lead {
+    margin: 0 0 10px 0;
+    color: var(--muted-foreground);
+    font-size: 11.8px;
+  }
+  .lead strong { color: var(--foreground); font-weight: 600; }
+  code {
+    font-family: var(--font-mono);
+    font-size: 10.3px;
+    background: var(--code-background);
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: var(--foreground);
+  }
+
+  /* KPI Row */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .kpi {
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    padding: 7px 9px;
+  }
+  .kpi-val {
+    font-size: 13.5px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--foreground);
+    line-height: 1.2;
+  }
+  .kpi-lbl {
+    font-size: 10.2px;
+    color: var(--muted-foreground);
+    margin-top: 2px;
+  }
+
+  /* Two-stage summary */
+  .stage-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .stage-box {
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    padding: 9px 11px;
+  }
+  .stage-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 5px;
+  }
+  .stage-name {
+    font-size: 11.8px;
+    font-weight: 650;
+    color: var(--foreground);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stage-badge {
+    font-family: var(--font-mono);
+    font-size: 9.6px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: var(--code-background);
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex: 0 0 auto;
+  }
+  .stage-list {
+    margin: 0;
+    padding-left: 14px;
+    color: var(--muted-foreground);
+    font-size: 11px;
+  }
+  .stage-list li { margin-bottom: 2.5px; }
+  .stage-list li:last-child { margin-bottom: 0; }
+  .stage-list strong { color: var(--foreground); font-weight: 600; }
+
+  /* Tabs */
+  .tab-bar {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 9px;
+  }
+  .tab-btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--secondary);
+    color: var(--muted-foreground);
+    font-family: var(--font-sans);
+    font-size: 11.2px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: calc(var(--radius) - 3px);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .tab-btn:hover { color: var(--foreground); }
+  .tab-btn.active {
+    background: var(--accent-surface);
+    color: var(--foreground);
+    border-color: var(--chart-1);
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  svg.diagram {
+    width: 100%;
+    height: auto;
+    display: block;
+    overflow: visible;
+  }
+
+  .legend-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 9px;
+  }
+  .pill-card {
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    padding: 7px 9px;
+  }
+  .pill-title {
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--foreground);
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .pill-body {
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+    line-height: 1.36;
+  }
+
+  table.spec {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  table.spec th, table.spec td {
+    text-align: left;
+    padding: 5.5px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.spec th {
+    color: var(--muted-foreground);
+    font-weight: 600;
+    font-size: 10.2px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: var(--secondary);
+  }
+  table.spec td.mono { font-family: var(--font-mono); font-size: 10.4px; }
+
+  /* ===== SECTION 3: 12-PHOTO INTERACTIVE FULL-PICTURE + ZOOM EXPLORER ===== */
+  .scene-strip {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 5px;
+    margin-bottom: 10px;
+  }
+  .standalone .scene-strip {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+  .scene-tile {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--secondary);
+    border-radius: calc(var(--radius) - 3px);
+    padding: 3px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    color: var(--muted-foreground);
+    transition: border-color 0.12s, background 0.12s, color 0.12s;
+  }
+  .scene-tile:hover { color: var(--foreground); border-color: var(--muted-foreground); }
+  .scene-tile.active {
+    border-color: var(--chart-1);
+    background: var(--accent-surface);
+    color: var(--foreground);
+  }
+  .scene-tile img {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    border-radius: 3px;
+    display: block;
+  }
+  .scene-tile span {
+    font-size: 9.6px;
+    font-weight: 600;
+    line-height: 1.15;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  /* Explorer Controls */
+  .controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 9px;
+    padding: 6px 8px;
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+  }
+  .ctrl-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .ctrl-lbl {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-right: 2px;
+  }
+  .pill-btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted-foreground);
+    font-family: var(--font-sans);
+    font-size: 10.6px;
+    font-weight: 600;
+    padding: 3.5px 7.5px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: border-color 0.12s, color 0.12s, background 0.12s;
+  }
+  .pill-btn:hover { color: var(--foreground); }
+  .pill-btn.active {
+    background: var(--accent-surface);
+    border-color: var(--chart-1);
+    color: var(--foreground);
+  }
+  .ver-select {
+    appearance: auto;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 10.6px;
+    font-weight: 600;
+    padding: 3px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+
+  /* Two-Column Workspace: Full Picture Navigator (Left) + Main Zoomed Viewer (Right) */
+  .explorer-grid {
+    display: grid;
+    grid-template-columns: 224px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+  }
+  .standalone .explorer-grid {
+    grid-template-columns: 340px minmax(0, 1fr);
+    gap: 14px;
+  }
+  .nav-pane {
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .nav-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .nav-title {
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--foreground);
+  }
+  .full-frame-box {
+    position: relative;
+    width: 100%;
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--background);
+    line-height: 0;
+  }
+  .full-frame-box img {
+    width: 100%;
+    height: auto;
+    display: block;
+    user-select: none;
+  }
+  .hotspot {
+    position: absolute;
+    border: 1.5px solid var(--chart-3);
+    background: rgba(251, 191, 36, 0.14);
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s, transform 0.12s;
+    min-width: 14px;
+    min-height: 14px;
+    transform: translate(-0%, -0%);
+  }
+  .hotspot:hover {
+    border-color: var(--foreground);
+    background: rgba(255, 255, 255, 0.22);
+    z-index: 4;
+  }
+  .hotspot.active {
+    border: 2px solid var(--chart-1);
+    background: rgba(91, 155, 255, 0.24);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65);
+    z-index: 5;
+  }
+  .hotspot-num {
+    position: absolute;
+    top: -13px;
+    left: -2px;
+    font-size: 9px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    line-height: 1;
+    padding: 1.5px 3.5px;
+    border-radius: 3px;
+    background: var(--card);
+    color: var(--foreground);
+    border: 1px solid var(--chart-3);
+    pointer-events: none;
+  }
+  .hotspot.active .hotspot-num {
+    background: var(--chart-1);
+    color: #fff;
+    border-color: var(--chart-1);
+  }
+
+  .region-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .reg-btn {
+    appearance: none;
+    width: 100%;
+    text-align: left;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted-foreground);
+    font-family: var(--font-sans);
+    font-size: 10.6px;
+    font-weight: 600;
+    padding: 4.5px 7px;
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .reg-btn:hover { color: var(--foreground); }
+  .reg-btn.active {
+    background: var(--accent-surface);
+    border-color: var(--chart-1);
+    color: var(--foreground);
+  }
+  .reg-idx {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: var(--code-background);
+    color: var(--foreground);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+  }
+  .reg-btn.active .reg-idx {
+    background: var(--chart-1);
+    color: #fff;
+  }
+  .nav-hint {
+    font-size: 10px;
+    color: var(--muted-foreground);
+    line-height: 1.3;
+  }
+
+  /* Right Main Comparison Pane */
+  .viewer-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  /* Slider Stage */
+  .split-stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-height: 452px;
+    border-radius: calc(var(--radius) - 2px);
+    overflow: hidden;
+    border: 1px solid var(--chart-1);
+    user-select: none;
+    touch-action: none;
+    cursor: ew-resize;
+    background: var(--secondary);
+  }
+  .standalone .split-stage {
+    max-height: 680px;
+  }
+  .split-stage.pan-mode { cursor: grab; }
+  .split-stage.pan-mode:active { cursor: grabbing; }
+  .split-stage.full-aspect {
+    aspect-ratio: auto;
+    height: 360px;
+  }
+  .standalone .split-stage.full-aspect {
+    height: 560px;
+  }
+  .split-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+  .split-layer img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
+    transform-origin: center center;
+    will-change: transform;
+  }
+  .split-layer.cover img {
+    object-fit: cover;
+  }
+  .split-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    background: var(--foreground);
+    transform: translateX(-1px);
+    z-index: 6;
+    cursor: ew-resize;
+  }
+  .split-knob {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--card);
+    border: 2px solid var(--chart-1);
+    color: var(--foreground);
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 7;
+    cursor: ew-resize;
+  }
+  .split-tag {
+    position: absolute;
+    top: 8px;
+    padding: 3px 7px;
+    border-radius: 5px;
+    font-size: 10.4px;
+    font-weight: 650;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--foreground);
+    z-index: 8;
+    pointer-events: none;
+  }
+  .split-tag.left { left: 8px; }
+  .split-tag.right { right: 8px; border-color: var(--chart-1); }
+  .zoom-badge {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--muted-foreground);
+    z-index: 8;
+    pointer-events: none;
+  }
+
+  /* 2-Up & 3-Up Side-by-Side Grid */
+  .side-grid {
+    display: none;
+    gap: 7px;
+  }
+  .side-grid.cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .side-grid.cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .side-col {
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .side-col.accent { border-color: var(--chart-1); }
+  .side-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4.5px 7px;
+    font-size: 10.5px;
+    font-weight: 650;
+    border-bottom: 1px solid var(--border);
+    color: var(--foreground);
+  }
+  .side-hdr small {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 9.3px;
+    color: var(--muted-foreground);
+  }
+  .side-vp {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    background: var(--background);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+  }
+  .side-vp:active { cursor: grabbing; }
+  .side-vp img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+    transform-origin: center center;
+    will-change: transform;
+  }
+
+  /* Full Picture Large View (when user selects "Full Picture") */
+  .full-large-wrap {
+    display: none;
+    position: relative;
+    width: 100%;
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    overflow: hidden;
+  }
+  .full-large-vp {
+    position: relative;
+    width: 100%;
+    max-height: 452px;
+    overflow: hidden;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--background);
+  }
+  .standalone .full-large-vp { max-height: 680px; }
+  .full-large-inner {
+    position: relative;
+    display: inline-block;
+    line-height: 0;
+    max-width: 100%;
+    transform-origin: center center;
+  }
+  .full-large-inner img {
+    max-width: 100%;
+    max-height: 452px;
+    width: auto;
+    height: auto;
+    display: block;
+    pointer-events: none;
+  }
+  .standalone .full-large-inner img { max-height: 680px; }
+
+  /* Telemetry Footer */
+  .meta-bar {
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    padding: 7px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .meta-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .meta-name {
+    font-size: 11.6px;
+    font-weight: 650;
+    color: var(--foreground);
+  }
+  .meta-chips {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 9.8px;
+    padding: 1.5px 5.5px;
+    border-radius: 4px;
+    background: var(--code-background);
+    color: var(--foreground);
+  }
+  .chip.ok { color: var(--chart-2); }
+  .meta-note {
+    font-size: 10.9px;
+    color: var(--muted-foreground);
+    margin: 0;
+  }
+
+  @media (max-width: 640px) {
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stage-grid { grid-template-columns: 1fr; }
+    .legend-grid { grid-template-columns: 1fr; }
+    .scene-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .explorer-grid { grid-template-columns: 1fr; }
+    .side-grid.cols-3 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- SECTION 1: WHAT IT DOES & HOW IT WORKS -->
+  <div class="card">
+    <div class="head-row">
+      <div class="title">1. Two-Stage RAW Denoiser &amp; 2× Super-Resolution — What It Does &amp; How It Works</div>
+      <div class="sub">Bayer Mosaic → Bayer Mosaic · Clean-Room Weights · Shift-Equivariant LocalSCA</div>
+    </div>
+    <p class="lead">
+      Instead of upscaling an already-demosaiced RGB image, this pipeline operates directly on <strong>signed linear Bayer RAW photosites</strong> (4 packed channels: R, G1, B, G2). First, the frozen <strong>main denoiser (<code>r4_plain</code>)</strong> removes shot and read noise while preserving linear highlight structure. Next, <strong><code>PhotoSRv2</code></strong> reads <em>both</em> the defect-cleaned original RAW and the denoised guide to synthesize a true <strong>2× wider &amp; 2× taller Bayer mosaic (4× total photosites)</strong> that saves back as an exact uint16 <code>.dng</code> editable in any RAW converter.
+    </p>
+
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="kpi-val" style="color: var(--chart-1);">39.39 dB</div>
+        <div class="kpi-lbl">Held-out Comp PSNR (+4.42 vs Denoise)</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-val" style="color: var(--chart-2);">45.79 dB</div>
+        <div class="kpi-lbl">Held-out Linear PSNR (+1.35 vs v1)</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-val" style="color: var(--chart-4);">+6.68 dB</div>
+        <div class="kpi-lbl">Specular Clipped Gain vs Track A v1</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-val" style="color: var(--chart-3);">0 Halos</div>
+        <div class="kpi-lbl">48/48 Exact uint16 DNG · 0 Blowups</div>
+      </div>
+    </div>
+
+    <div class="stage-grid">
+      <div class="stage-box">
+        <div class="stage-hdr">
+          <div class="stage-name"><span class="dot" style="background: var(--chart-3);"></span><span>Stage 1 · Main Denoiser <code>r4_plain</code></span></div>
+          <span class="stage-badge">23.82M · Frozen</span>
+        </div>
+        <ul class="stage-list">
+          <li><strong>Noise-aware gamma space:</strong> compresses signed linear RAW via <code>x^0.4545</code> so shadow read noise and midtones share balanced dynamic range, predicts a residual, and inverts to linear.</li>
+          <li><strong>4-stage NAFNet U-Net:</strong> width <code>40</code>, blocks <code>[1,1,2,4] / 6 / [1,1,1,1]</code>, feathered <code>512×512</code> tiles (overlap 60) after <code>correct_defects(k=8)</code>.</li>
+          <li><strong>Highlight lock:</strong> <code>protect_highlights(≥0.98)</code> preserves original clipped photosite ratios via a 4-step feathered mask.</li>
+        </ul>
+      </div>
+      <div class="stage-box">
+        <div class="stage-hdr">
+          <div class="stage-name"><span class="dot" style="background: var(--chart-1);"></span><span>Stage 2 · <code>PhotoSRv2</code> 2× RAW SR</span></div>
+          <span class="stage-badge">5.97M · Clean-Room</span>
+        </div>
+        <ul class="stage-list">
+          <li><strong>Dual-input compressive <code>asinh</code>:</strong> fuses <code>asinh(y_pre)</code> (fine unsoftened texture), <code>asinh(d)</code> (clean guide), and 4 per-CFA saturation flags so 200:1 speculars never ring.</li>
+          <li><strong>Shift-equivariant <code>LocalNAFNet</code> + HR tail:</strong> reflect-padded <code>LocalSCA(15,11,7,5)</code> (zero tile seams) + 24-ch 2-layer 3×3 HR tail after <code>PixelShuffle(2)</code> atop CFA <code>site_upsample(d)</code>.</li>
+          <li><strong>Exact Bayer TTA + Floor Guard:</strong> averages a 2-fold spatial transpose (swapping <code>G1↔G2</code>, the unique exact 2× Bayer symmetry) with zero-blur shadow/white bounds.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2: WORKFLOWS & MODEL ARCHITECTURES -->
+  <div class="card">
+    <div class="head-row">
+      <div class="title">2. End-to-End Workflow &amp; Model Architecture Layouts</div>
+      <div class="sub">Switch tabs to inspect Stage 1 Denoiser, Stage 2 PhotoSRv2, or side-by-side specs</div>
+    </div>
+
+    <div class="tab-bar" role="tablist">
+      <button class="tab-btn active" data-tab="pipeline" role="tab">1. End-to-End Workflow</button>
+      <button class="tab-btn" data-tab="sr2" role="tab">2. PhotoSRv2 (5.97M)</button>
+      <button class="tab-btn" data-tab="denoiser" role="tab">3. Main Denoiser r4_plain (23.82M)</button>
+      <button class="tab-btn" data-tab="compare" role="tab">4. Specs &amp; Benchmarks</button>
+    </div>
+
+    <!-- TAB 1: END-TO-END WORKFLOW -->
+    <div class="tab-panel active" id="tab-pipeline">
+      <svg class="diagram" viewBox="0 0 700 282" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="var(--muted-foreground)" />
+          </marker>
+          <marker id="arr-acc" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="var(--chart-1)" />
+          </marker>
+          <marker id="arr-ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="var(--chart-2)" />
+          </marker>
+          <marker id="arr-den" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="var(--chart-3)" />
+          </marker>
+        </defs>
+
+        <rect x="8" y="12" width="118" height="58" rx="8" fill="var(--secondary)" stroke="var(--border)" stroke-width="1.2" />
+        <text x="67" y="32" text-anchor="middle" fill="var(--foreground)" font-size="11" font-weight="600">Camera RAW</text>
+        <text x="67" y="46" text-anchor="middle" fill="var(--muted-foreground)" font-size="9">.3FR / .ARW / .DNG</text>
+        <text x="67" y="60" text-anchor="middle" fill="var(--chart-1)" font-family="var(--font-mono)" font-size="9">H × W mosaic</text>
+
+        <line x1="126" y1="41" x2="148" y2="41" stroke="var(--muted-foreground)" stroke-width="1.4" marker-end="url(#arr)" />
+
+        <rect x="150" y="12" width="138" height="58" rx="8" fill="var(--secondary)" stroke="var(--border)" stroke-width="1.2" />
+        <text x="219" y="32" text-anchor="middle" fill="var(--foreground)" font-size="11" font-weight="600">Normalize + Pack</text>
+        <text x="219" y="46" text-anchor="middle" fill="var(--muted-foreground)" font-size="9">signed linear, keep &lt;0</text>
+        <text x="219" y="60" text-anchor="middle" fill="var(--chart-1)" font-family="var(--font-mono)" font-size="9">y: 4 × H/2 × W/2</text>
+
+        <line x1="288" y1="41" x2="310" y2="41" stroke="var(--muted-foreground)" stroke-width="1.4" marker-end="url(#arr)" />
+
+        <rect x="312" y="12" width="150" height="58" rx="8" fill="var(--secondary)" stroke="var(--chart-4)" stroke-width="1.4" />
+        <text x="387" y="32" text-anchor="middle" fill="var(--foreground)" font-size="11" font-weight="600">Defect Prepass</text>
+        <text x="387" y="46" text-anchor="middle" fill="var(--muted-foreground)" font-size="9">correct_defects (k=8)</text>
+        <text x="387" y="60" text-anchor="middle" fill="var(--chart-4)" font-family="var(--font-mono)" font-size="8.6">hot pixels fixed → y_pre</text>
+
+        <line x1="462" y1="41" x2="486" y2="41" stroke="var(--chart-3)" stroke-width="1.5" marker-end="url(#arr-den)" />
+
+        <rect x="488" y="6" width="204" height="70" rx="9" fill="var(--secondary)" stroke="var(--chart-3)" stroke-width="1.7" />
+        <text x="590" y="25" text-anchor="middle" fill="var(--foreground)" font-size="11" font-weight="700">Stage 1: Main Denoiser (r4_plain)</text>
+        <text x="590" y="40" text-anchor="middle" fill="var(--muted-foreground)" font-size="9">DenoiseNet 23.82M · gamma(0.4545)</text>
+        <text x="590" y="54" text-anchor="middle" fill="var(--muted-foreground)" font-size="9">512² tiles (ol=60) + protect_highlights</text>
+        <text x="590" y="68" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="9">d: 4 × H/2 × W/2 (denoised RAW)</text>
+
+        <path d="M 387 70 L 387 99 L 184 99 L 184 115" fill="none" stroke="var(--chart-4)" stroke-width="1.5" marker-end="url(#arr)" />
+        <text x="282" y="94" text-anchor="middle" fill="var(--chart-4)" font-family="var(--font-mono)" font-size="9">y_pre (original fine detail)</text>
+
+        <path d="M 590 76 L 590 99 L 392 99 L 392 115" fill="none" stroke="var(--chart-3)" stroke-width="1.5" marker-end="url(#arr-den)" />
+        <text x="498" y="94" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="9">d (clean denoised guide)</text>
+
+        <rect x="16" y="117" width="504" height="70" rx="10" fill="var(--accent-surface)" stroke="var(--chart-1)" stroke-width="1.8" />
+        <text x="268" y="138" text-anchor="middle" fill="var(--foreground)" font-size="11.6" font-weight="700">Stage 2: PhotoSRv2 (5.97M) + Exact 2-Fold Bayer Transpose TTA</text>
+        <text x="268" y="154" text-anchor="middle" fill="var(--muted-foreground)" font-size="9.1">Pass 1: PhotoSRv2(y_pre, d)  ·  Pass 2: transpose + swap(G1↔G2) → PhotoSRv2 → inverse</text>
+        <text x="268" y="171" text-anchor="middle" fill="var(--chart-1)" font-family="var(--font-mono)" font-size="9.1">out = 0.5·(P₀ + P_T)   [asinh domain · LocalSCA · 24-ch HR tail · 4 × H × W]</text>
+
+        <line x1="520" y1="152" x2="544" y2="152" stroke="var(--chart-1)" stroke-width="1.5" marker-end="url(#arr-acc)" />
+
+        <rect x="546" y="117" width="146" height="70" rx="8" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.4" />
+        <text x="619" y="136" text-anchor="middle" fill="var(--foreground)" font-size="10.8" font-weight="600">Physical Floor Guard</text>
+        <text x="619" y="151" text-anchor="middle" fill="var(--muted-foreground)" font-size="9">shadow ≥ 0.25·lo (lo&gt;0)</text>
+        <text x="619" y="165" text-anchor="middle" fill="var(--muted-foreground)" font-size="9">ceiling ≤ 1.0 (unclipped)</text>
+        <text x="619" y="179" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8.8">zero highlight blur</text>
+
+        <path d="M 619 187 L 619 205 L 486 205 L 486 218" fill="none" stroke="var(--chart-2)" stroke-width="1.5" marker-end="url(#arr-ok)" />
+
+        <rect x="314" y="220" width="214" height="54" rx="8" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.4" />
+        <text x="421" y="239" text-anchor="middle" fill="var(--foreground)" font-size="11" font-weight="600">Unpack → 2× Bayer DNG</text>
+        <text x="421" y="253" text-anchor="middle" fill="var(--muted-foreground)" font-size="9">uint16 sensor codes (exact roundtrip)</text>
+        <text x="421" y="266" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="9">2H × 2W synthesized RGGB</text>
+
+        <line x1="314" y1="247" x2="266" y2="247" stroke="var(--muted-foreground)" stroke-width="1.4" marker-end="url(#arr)" />
+
+        <rect x="28" y="220" width="236" height="54" rx="8" fill="var(--secondary)" stroke="var(--border)" stroke-width="1.2" />
+        <text x="146" y="239" text-anchor="middle" fill="var(--foreground)" font-size="11" font-weight="600">Standard RAW Editor / LibRaw</text>
+        <text x="146" y="253" text-anchor="middle" fill="var(--muted-foreground)" font-size="9">camera WB · demosaic · color matrices</text>
+        <text x="146" y="266" text-anchor="middle" fill="var(--muted-foreground)" font-family="var(--font-mono)" font-size="9">2H × 2W × 3 sRGB16 / TIFF / PNG</text>
+      </svg>
+
+      <div class="legend-grid">
+        <div class="pill-card">
+          <div class="pill-title"><span class="dot" style="background: var(--chart-3);"></span>Why Two Stages?</div>
+          <div class="pill-body"><code>r4_plain</code> handles heavy multi-ISO noise across 1× pixels; <code>PhotoSRv2</code> focuses purely on sub-pixel 2× reconstruction while reading back crisp texture from <code>y_pre</code>.</div>
+        </div>
+        <div class="pill-card">
+          <div class="pill-title"><span class="dot" style="background: var(--chart-1);"></span>Exact 2× Bayer Symmetry</div>
+          <div class="pill-body">At 2× scale, horizontal/vertical flips shift Bayer parity (R→G). Spatial transpose + <code>G1↔G2</code> swap is the unique exact symmetry (+0.07 dB, zero color shift).</div>
+        </div>
+        <div class="pill-card">
+          <div class="pill-title"><span class="dot" style="background: var(--chart-2);"></span>True RAW Deliverable</div>
+          <div class="pill-body">Outputs stay linear in native camera primaries, keeping full exposure latitude, white-balance freedom, and bit-exact uint16 DNG roundtrips.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: PHOTOSRV2 ARCHITECTURE -->
+    <div class="tab-panel" id="tab-sr2">
+      <svg class="diagram" viewBox="0 0 700 398" xmlns="http://www.w3.org/2000/svg">
+        <rect x="12" y="10" width="128" height="42" rx="7" fill="var(--secondary)" stroke="var(--chart-3)" stroke-width="1.3" />
+        <text x="76" y="28" text-anchor="middle" fill="var(--foreground)" font-size="10.2" font-weight="600">Guide d (4 ch)</text>
+        <text x="76" y="43" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8.8">4 × H/2 × W/2</text>
+
+        <line x1="140" y1="31" x2="188" y2="31" stroke="var(--chart-3)" stroke-width="1.4" marker-end="url(#arr)" />
+
+        <rect x="190" y="10" width="194" height="42" rx="7" fill="var(--secondary)" stroke="var(--chart-3)" stroke-width="1.3" />
+        <text x="287" y="27" text-anchor="middle" fill="var(--foreground)" font-size="10.2" font-weight="600">CFA site_upsample(d, 2×)</text>
+        <text x="287" y="42" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.8">exact R/G1/B/G2 grid → asinh(·)</text>
+
+        <line x1="384" y1="31" x2="554" y2="31" stroke="var(--chart-3)" stroke-width="1.5" stroke-dasharray="4 3" />
+        <line x1="554" y1="31" x2="554" y2="80" stroke="var(--chart-3)" stroke-width="1.5" marker-end="url(#arr)" />
+        <text x="469" y="24" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8.8">z_base (4 × H × W)</text>
+
+        <rect x="12" y="72" width="136" height="88" rx="8" fill="var(--secondary)" stroke="var(--chart-1)" stroke-width="1.4" />
+        <text x="80" y="89" text-anchor="middle" fill="var(--foreground)" font-size="10.2" font-weight="600">12-Ch Input Stack</text>
+        <text x="80" y="105" text-anchor="middle" fill="var(--chart-4)" font-family="var(--font-mono)" font-size="8.8">asinh(y_pre, s=.05) [4]</text>
+        <text x="80" y="120" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8.8">asinh(d, s=.05)     [4]</text>
+        <text x="80" y="135" text-anchor="middle" fill="var(--chart-5)" font-family="var(--font-mono)" font-size="8.8">sat_mask (≥.94..98) [4]</text>
+        <text x="80" y="150" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.3">per-CFA saturation flags</text>
+
+        <line x1="148" y1="108" x2="174" y2="108" stroke="var(--muted-foreground)" stroke-width="1.4" marker-end="url(#arr)" />
+
+        <rect x="176" y="64" width="290" height="222" rx="10" fill="var(--background)" stroke="var(--border)" stroke-width="1.2" stroke-dasharray="4 3" />
+        <text x="321" y="80" text-anchor="middle" fill="var(--muted-foreground)" font-size="9.5" font-weight="600">LocalNAFNet U-Net (Shift-Equivariant · 5.97M)</text>
+
+        <rect x="188" y="89" width="118" height="35" rx="6" fill="var(--secondary)" stroke="var(--chart-1)" stroke-width="1.3" />
+        <text x="247" y="104" text-anchor="middle" fill="var(--foreground)" font-size="9.3" font-weight="600">Intro + Enc0 (48)</text>
+        <text x="247" y="117" text-anchor="middle" fill="var(--chart-1)" font-family="var(--font-mono)" font-size="8.3">1× LocalNAF · SCA k=15</text>
+        <line x1="306" y1="106" x2="334" y2="106" stroke="var(--muted-foreground)" stroke-width="1.1" stroke-dasharray="3 2" marker-end="url(#arr)" />
+        <rect x="336" y="89" width="118" height="35" rx="6" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.3" />
+        <text x="395" y="104" text-anchor="middle" fill="var(--foreground)" font-size="9.3" font-weight="600">Dec0 (48→96)</text>
+        <text x="395" y="117" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8.3">1× LocalNAF · SCA k=15</text>
+
+        <line x1="247" y1="124" x2="247" y2="140" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <line x1="395" y1="142" x2="395" y2="126" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="194" y="142" width="106" height="34" rx="6" fill="var(--secondary)" stroke="var(--chart-1)" stroke-width="1.2" />
+        <text x="247" y="156" text-anchor="middle" fill="var(--foreground)" font-size="9.3" font-weight="600">↓2 Enc1 (96)</text>
+        <text x="247" y="169" text-anchor="middle" fill="var(--chart-1)" font-family="var(--font-mono)" font-size="8.3">1× Block · SCA k=11</text>
+        <line x1="300" y1="159" x2="340" y2="159" stroke="var(--muted-foreground)" stroke-width="1.1" stroke-dasharray="3 2" marker-end="url(#arr)" />
+        <rect x="342" y="142" width="106" height="34" rx="6" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.2" />
+        <text x="395" y="156" text-anchor="middle" fill="var(--foreground)" font-size="9.3" font-weight="600">↑2 Dec1 (96)</text>
+        <text x="395" y="169" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8.3">1× Block · SCA k=11</text>
+
+        <line x1="247" y1="176" x2="247" y2="192" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <line x1="395" y1="194" x2="395" y2="178" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="200" y="194" width="94" height="34" rx="6" fill="var(--secondary)" stroke="var(--chart-1)" stroke-width="1.2" />
+        <text x="247" y="208" text-anchor="middle" fill="var(--foreground)" font-size="9.3" font-weight="600">↓2 Enc2 (192)</text>
+        <text x="247" y="221" text-anchor="middle" fill="var(--chart-1)" font-family="var(--font-mono)" font-size="8.3">2× Block · k=7</text>
+        <line x1="294" y1="211" x2="346" y2="211" stroke="var(--muted-foreground)" stroke-width="1.1" stroke-dasharray="3 2" marker-end="url(#arr)" />
+        <rect x="348" y="194" width="94" height="34" rx="6" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.2" />
+        <text x="395" y="208" text-anchor="middle" fill="var(--foreground)" font-size="9.3" font-weight="600">↑2 Dec2 (192)</text>
+        <text x="395" y="221" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8.3">1× Block · k=7</text>
+
+        <line x1="247" y1="228" x2="247" y2="243" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <line x1="395" y1="243" x2="395" y2="230" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="224" y="244" width="194" height="34" rx="6" fill="var(--accent-surface)" stroke="var(--chart-6)" stroke-width="1.4" />
+        <text x="321" y="258" text-anchor="middle" fill="var(--foreground)" font-size="9.3" font-weight="600">Bottleneck (384 ch · 1/8 scale)</text>
+        <text x="321" y="271" text-anchor="middle" fill="var(--chart-6)" font-family="var(--font-mono)" font-size="8.3">4× LocalNAFBlock · LocalSCA k=5</text>
+
+        <path d="M 454 106 L 502 106 L 502 132" fill="none" stroke="var(--chart-2)" stroke-width="1.4" marker-end="url(#arr-ok)" />
+        <rect x="488" y="134" width="202" height="88" rx="8" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.4" />
+        <text x="589" y="151" text-anchor="middle" fill="var(--foreground)" font-size="10.2" font-weight="600">2× PixelShuffle + HR Tail</text>
+        <text x="589" y="167" text-anchor="middle" fill="var(--muted-foreground)" font-family="var(--font-mono)" font-size="8.8">PixelShuffle(2): 96 → 24 ch @ 2×HR</text>
+        <text x="589" y="182" text-anchor="middle" fill="var(--muted-foreground)" font-family="var(--font-mono)" font-size="8.8">Conv3×3(24→24) + GELU</text>
+        <text x="589" y="197" text-anchor="middle" fill="var(--muted-foreground)" font-family="var(--font-mono)" font-size="8.8">Zero-Init Conv3×3(24→4)</text>
+        <text x="589" y="213" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8.8">Δz = 1.5·tanh(raw / 1.5)</text>
+
+        <circle cx="554" cy="95" r="13" fill="var(--accent-surface)" stroke="var(--chart-1)" stroke-width="1.6" />
+        <text x="554" y="100" text-anchor="middle" fill="var(--foreground)" font-size="15" font-weight="700">+</text>
+        <path d="M 554 134 L 554 110" fill="none" stroke="var(--chart-2)" stroke-width="1.5" marker-end="url(#arr-ok)" />
+
+        <line x1="567" y1="95" x2="588" y2="95" stroke="var(--chart-1)" stroke-width="1.5" marker-end="url(#arr-acc)" />
+        <rect x="590" y="66" width="100" height="56" rx="8" fill="var(--accent-surface)" stroke="var(--chart-1)" stroke-width="1.6" />
+        <text x="640" y="83" text-anchor="middle" fill="var(--foreground)" font-size="9.8" font-weight="700">soft_white_cap</text>
+        <text x="640" y="97" text-anchor="middle" fill="var(--muted-foreground)" font-family="var(--font-mono)" font-size="8.3">start=1.0 k=.003</text>
+        <text x="640" y="112" text-anchor="middle" fill="var(--chart-1)" font-family="var(--font-mono)" font-size="8.8">sinh⁻¹ → 2× HR</text>
+
+        <rect x="12" y="302" width="678" height="86" rx="8" fill="var(--secondary)" stroke="var(--border)" stroke-width="1.2" />
+        <text x="26" y="320" fill="var(--foreground)" font-size="10.2" font-weight="600">Inside LocalNAFBlock (why tile breathing is zero):</text>
+        <text x="676" y="320" text-anchor="end" fill="var(--muted-foreground)" font-family="var(--font-mono)" font-size="8.8">No global AdaptiveAvgPool2d(1)</text>
+        <rect x="24" y="332" width="64" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="56" y="354" text-anchor="middle" fill="var(--foreground)" font-size="9">LN2d</text>
+        <line x1="88" y1="350" x2="104" y2="350" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="106" y="332" width="96" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="154" y="347" text-anchor="middle" fill="var(--foreground)" font-size="9">1×1 (2×) +</text>
+        <text x="154" y="360" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.3">3×3 DWConv</text>
+        <line x1="202" y1="350" x2="218" y2="350" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="220" y="332" width="76" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="258" y="347" text-anchor="middle" fill="var(--foreground)" font-size="9">SimpleGate</text>
+        <text x="258" y="360" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.3">a ⊙ b</text>
+        <line x1="296" y1="350" x2="312" y2="350" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="314" y="332" width="136" height="36" rx="5" fill="var(--accent-surface)" stroke="var(--chart-1)" stroke-width="1.4" />
+        <text x="382" y="347" text-anchor="middle" fill="var(--foreground)" font-size="9" font-weight="600">× LocalSCA (k×k)</text>
+        <text x="382" y="360" text-anchor="middle" fill="var(--chart-1)" font-family="var(--font-mono)" font-size="8.3">reflect avg_pool + 1×1</text>
+        <line x1="450" y1="350" x2="466" y2="350" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="468" y="332" width="84" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="510" y="347" text-anchor="middle" fill="var(--foreground)" font-size="9">1×1 · β</text>
+        <text x="510" y="360" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.3">+ residual skip</text>
+        <line x1="552" y1="350" x2="568" y2="350" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="570" y="332" width="106" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="623" y="347" text-anchor="middle" fill="var(--foreground)" font-size="9">LN2d → FFN</text>
+        <text x="623" y="360" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.3">SimpleGate · γ + skip</text>
+      </svg>
+    </div>
+
+    <!-- TAB 3: MAIN DENOISER r4_plain ARCHITECTURE -->
+    <div class="tab-panel" id="tab-denoiser">
+      <svg class="diagram" viewBox="0 0 700 398" xmlns="http://www.w3.org/2000/svg">
+        <rect x="12" y="10" width="134" height="44" rx="7" fill="var(--secondary)" stroke="var(--chart-4)" stroke-width="1.3" />
+        <text x="79" y="28" text-anchor="middle" fill="var(--foreground)" font-size="10.2" font-weight="600">y_pre (512² tile)</text>
+        <text x="79" y="43" text-anchor="middle" fill="var(--chart-4)" font-family="var(--font-mono)" font-size="8.8">4 × 512 × 512 (ol=60)</text>
+
+        <line x1="146" y1="32" x2="184" y2="32" stroke="var(--muted-foreground)" stroke-width="1.4" marker-end="url(#arr)" />
+
+        <rect x="186" y="10" width="164" height="44" rx="7" fill="var(--secondary)" stroke="var(--chart-3)" stroke-width="1.4" />
+        <text x="268" y="28" text-anchor="middle" fill="var(--foreground)" font-size="10.2" font-weight="600">Signed Gamma(0.4545)</text>
+        <text x="268" y="43" text-anchor="middle" fill="var(--muted-foreground)" font-family="var(--font-mono)" font-size="8.5">sign(x)·|x|^0.4545 → g</text>
+
+        <line x1="350" y1="32" x2="544" y2="32" stroke="var(--chart-3)" stroke-width="1.5" stroke-dasharray="4 3" />
+        <line x1="544" y1="32" x2="544" y2="86" stroke="var(--chart-3)" stroke-width="1.5" marker-end="url(#arr-den)" />
+        <text x="448" y="25" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8.8">gamma residual skip g</text>
+
+        <path d="M 268 54 L 268 72 L 154 72 L 154 114 L 174 114" fill="none" stroke="var(--chart-3)" stroke-width="1.4" marker-end="url(#arr-den)" />
+
+        <rect x="12" y="84" width="132" height="122" rx="8" fill="var(--secondary)" stroke="var(--border)" stroke-width="1.2" />
+        <text x="78" y="103" text-anchor="middle" fill="var(--foreground)" font-size="10" font-weight="600">Tiled Wrapper</text>
+        <text x="78" y="121" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.8">1. correct_defects(k=8)</text>
+        <text x="78" y="137" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.8">2. reflect Bayer pad</text>
+        <text x="78" y="153" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.8">3. 512×512 tiles</text>
+        <text x="78" y="169" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.8">4. overlap=60</text>
+        <text x="78" y="185" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8.6">feather power=2.2</text>
+
+        <rect x="176" y="64" width="298" height="228" rx="10" fill="var(--background)" stroke="var(--chart-3)" stroke-width="1.3" stroke-dasharray="4 3" />
+        <text x="325" y="79" text-anchor="middle" fill="var(--muted-foreground)" font-size="9.3" font-weight="600">NAFNet 4-Stage U-Net (width=40 · 23.82M · step 120k)</text>
+
+        <rect x="188" y="87" width="118" height="31" rx="5" fill="var(--secondary)" stroke="var(--chart-3)" stroke-width="1.3" />
+        <text x="247" y="100" text-anchor="middle" fill="var(--foreground)" font-size="9" font-weight="600">Intro + Enc0 (40)</text>
+        <text x="247" y="112" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8">1× NAFBlock</text>
+        <line x1="306" y1="102" x2="342" y2="102" stroke="var(--muted-foreground)" stroke-width="1.1" stroke-dasharray="3 2" marker-end="url(#arr)" />
+        <rect x="344" y="87" width="118" height="31" rx="5" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.3" />
+        <text x="403" y="100" text-anchor="middle" fill="var(--foreground)" font-size="9" font-weight="600">Dec0 + End (40→4)</text>
+        <text x="403" y="112" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8">1× NAFBlock</text>
+
+        <rect x="194" y="128" width="106" height="29" rx="5" fill="var(--secondary)" stroke="var(--chart-3)" stroke-width="1.1" />
+        <text x="247" y="140" text-anchor="middle" fill="var(--foreground)" font-size="8.8" font-weight="600">↓2 Enc1 (80)</text>
+        <text x="247" y="151" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8">1× NAFBlock</text>
+        <line x1="300" y1="142" x2="348" y2="142" stroke="var(--muted-foreground)" stroke-width="1" stroke-dasharray="3 2" marker-end="url(#arr)" />
+        <rect x="350" y="128" width="106" height="29" rx="5" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.1" />
+        <text x="403" y="140" text-anchor="middle" fill="var(--foreground)" font-size="8.8" font-weight="600">↑2 Dec1 (80)</text>
+        <text x="403" y="151" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8">1× NAFBlock</text>
+
+        <rect x="200" y="167" width="94" height="29" rx="5" fill="var(--secondary)" stroke="var(--chart-3)" stroke-width="1.1" />
+        <text x="247" y="179" text-anchor="middle" fill="var(--foreground)" font-size="8.8" font-weight="600">↓2 Enc2 (160)</text>
+        <text x="247" y="190" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8">2× NAFBlock</text>
+        <line x1="294" y1="181" x2="354" y2="181" stroke="var(--muted-foreground)" stroke-width="1" stroke-dasharray="3 2" marker-end="url(#arr)" />
+        <rect x="356" y="167" width="94" height="29" rx="5" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.1" />
+        <text x="403" y="179" text-anchor="middle" fill="var(--foreground)" font-size="8.8" font-weight="600">↑2 Dec2 (160)</text>
+        <text x="403" y="190" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8">1× NAFBlock</text>
+
+        <rect x="204" y="206" width="88" height="29" rx="5" fill="var(--secondary)" stroke="var(--chart-3)" stroke-width="1.1" />
+        <text x="248" y="218" text-anchor="middle" fill="var(--foreground)" font-size="8.8" font-weight="600">↓2 Enc3 (320)</text>
+        <text x="248" y="229" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8">4× NAFBlock</text>
+        <line x1="292" y1="220" x2="356" y2="220" stroke="var(--muted-foreground)" stroke-width="1" stroke-dasharray="3 2" marker-end="url(#arr)" />
+        <rect x="358" y="206" width="88" height="29" rx="5" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.1" />
+        <text x="402" y="218" text-anchor="middle" fill="var(--foreground)" font-size="8.8" font-weight="600">↑2 Dec3 (320)</text>
+        <text x="402" y="229" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8">1× NAFBlock</text>
+
+        <rect x="220" y="246" width="210" height="36" rx="6" fill="var(--accent-surface)" stroke="var(--chart-6)" stroke-width="1.4" />
+        <text x="325" y="261" text-anchor="middle" fill="var(--foreground)" font-size="9.2" font-weight="600">Bottleneck (640 ch · 1/16 scale)</text>
+        <text x="325" y="274" text-anchor="middle" fill="var(--chart-6)" font-family="var(--font-mono)" font-size="8.3">6× NAFBlock · Conv2×2↓ / PixelShuffle↑</text>
+
+        <line x1="462" y1="102" x2="529" y2="102" stroke="var(--chart-2)" stroke-width="1.5" marker-end="url(#arr-ok)" />
+        <circle cx="544" cy="102" r="13" fill="var(--accent-surface)" stroke="var(--chart-3)" stroke-width="1.6" />
+        <text x="544" y="107" text-anchor="middle" fill="var(--foreground)" font-size="15" font-weight="700">+</text>
+
+        <line x1="557" y1="102" x2="578" y2="102" stroke="var(--chart-3)" stroke-width="1.5" marker-end="url(#arr-den)" />
+        <rect x="580" y="72" width="110" height="58" rx="8" fill="var(--secondary)" stroke="var(--chart-3)" stroke-width="1.4" />
+        <text x="635" y="92" text-anchor="middle" fill="var(--foreground)" font-size="9.8" font-weight="600">Inverse Gamma</text>
+        <text x="635" y="106" text-anchor="middle" fill="var(--muted-foreground)" font-family="var(--font-mono)" font-size="8.4">sign·|out_g|^2.2</text>
+        <text x="635" y="120" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8.4">linear RAW</text>
+
+        <line x1="635" y1="130" x2="635" y2="156" stroke="var(--chart-2)" stroke-width="1.5" marker-end="url(#arr-ok)" />
+
+        <rect x="514" y="158" width="176" height="82" rx="8" fill="var(--secondary)" stroke="var(--chart-2)" stroke-width="1.4" />
+        <text x="602" y="176" text-anchor="middle" fill="var(--foreground)" font-size="10" font-weight="600">protect_highlights</text>
+        <text x="602" y="191" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.7">seed: any CFA ≥ 0.98</text>
+        <text x="602" y="205" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.7">4× max_pool feather (8 px)</text>
+        <text x="602" y="219" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.7">keeps exact clipped core</text>
+        <text x="602" y="233" text-anchor="middle" fill="var(--chart-2)" font-family="var(--font-mono)" font-size="8.8">→ guide d (4 × H/2 × W/2)</text>
+
+        <rect x="12" y="304" width="678" height="82" rx="8" fill="var(--secondary)" stroke="var(--border)" stroke-width="1.2" />
+        <text x="26" y="322" fill="var(--foreground)" font-size="10.2" font-weight="600">Inside r4_plain NAFBlock (Standard Global SCA):</text>
+        <text x="676" y="322" text-anchor="end" fill="var(--muted-foreground)" font-family="var(--font-mono)" font-size="8.8">Unconditioned (cond=none)</text>
+        <rect x="24" y="334" width="64" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="56" y="356" text-anchor="middle" fill="var(--foreground)" font-size="9">LN2d</text>
+        <line x1="88" y1="352" x2="104" y2="352" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="106" y="334" width="96" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="154" y="349" text-anchor="middle" fill="var(--foreground)" font-size="9">1×1 (2×) +</text>
+        <text x="154" y="362" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.3">3×3 DWConv</text>
+        <line x1="202" y1="352" x2="218" y2="352" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="220" y="334" width="76" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="258" y="349" text-anchor="middle" fill="var(--foreground)" font-size="9">SimpleGate</text>
+        <text x="258" y="362" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.3">a ⊙ b</text>
+        <line x1="296" y1="352" x2="312" y2="352" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="314" y="334" width="136" height="36" rx="5" fill="var(--card)" stroke="var(--chart-3)" stroke-width="1.4" />
+        <text x="382" y="349" text-anchor="middle" fill="var(--foreground)" font-size="9" font-weight="600">× Global SCA</text>
+        <text x="382" y="362" text-anchor="middle" fill="var(--chart-3)" font-family="var(--font-mono)" font-size="8.3">AdaptiveAvgPool(1)+1×1</text>
+        <line x1="450" y1="352" x2="466" y2="352" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="468" y="334" width="84" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="510" y="349" text-anchor="middle" fill="var(--foreground)" font-size="9">1×1 · β</text>
+        <text x="510" y="362" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.3">+ residual skip</text>
+        <line x1="552" y1="352" x2="568" y2="352" stroke="var(--muted-foreground)" stroke-width="1.2" marker-end="url(#arr)" />
+        <rect x="570" y="334" width="106" height="36" rx="5" fill="var(--card)" stroke="var(--border)" />
+        <text x="623" y="349" text-anchor="middle" fill="var(--foreground)" font-size="9">LN2d → FFN</text>
+        <text x="623" y="362" text-anchor="middle" fill="var(--muted-foreground)" font-size="8.3">SimpleGate · γ + skip</text>
+      </svg>
+    </div>
+
+    <!-- TAB 4: SPECS & BENCHMARKS -->
+    <div class="tab-panel" id="tab-compare">
+      <table class="spec">
+        <thead>
+          <tr>
+            <th>Property</th>
+            <th>Stage 1 · Main Denoiser (<code>r4_plain</code>)</th>
+            <th>Stage 2 · <code>PhotoSRv2</code> (Final Candidate)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Task &amp; Resolution</strong></td>
+            <td>1× Bayer RAW denoising (<code>4×H/2×W/2 → 4×H/2×W/2</code>)</td>
+            <td>2× Bayer RAW super-resolution (<code>4×H/2×W/2 → 4×H×W</code>)</td>
+          </tr>
+          <tr>
+            <td><strong>Backbone &amp; Size</strong></td>
+            <td class="mono">NAFNet w=40, enc [1,1,2,4], mid 6, dec [1,1,1,1] · 23.82M</td>
+            <td class="mono">LocalNAFNet w=48, enc [1,1,2], mid 4, dec [1,1,1] + 24ch HR · 5.97M</td>
+          </tr>
+          <tr>
+            <td><strong>Input Channels</strong></td>
+            <td class="mono">4 ch: gamma(y_pre)</td>
+            <td class="mono">12 ch: asinh(y_pre) [4] + asinh(d) [4] + sat_4 [4]</td>
+          </tr>
+          <tr>
+            <td><strong>Working Domain</strong></td>
+            <td>Signed power <code>gamma(0.4545)</code> + residual skip</td>
+            <td>Signed <code>asinh(x, s=0.05)</code> + CFA <code>site_upsample(d)</code> skip</td>
+          </tr>
+          <tr>
+            <td><strong>Attention Type</strong></td>
+            <td>Global <code>AdaptiveAvgPool2d(1)</code> SCA (feathered tiling)</td>
+            <td>Shift-equivariant reflect-padded <code>LocalSCA(15,11,7,5)</code></td>
+          </tr>
+          <tr>
+            <td><strong>Highlight / Safety</strong></td>
+            <td><code>protect_highlights(≥0.98)</code> 4-step feathered blend</td>
+            <td><code>1.5·tanh</code> bound + zero-bias <code>soft_white_cap</code> + floor guard</td>
+          </tr>
+          <tr>
+            <td><strong>Held-out Val (6 regimes)</strong></td>
+            <td class="mono">34.96 dB comp / 41.75 dB lin (2× CFA baseline)</td>
+            <td class="mono"><strong>39.39 dB comp / 45.79 dB lin</strong> (+4.42 dB · chroma 0.00287)</td>
+          </tr>
+          <tr>
+            <td><strong>Analytic Star / Clipped</strong></td>
+            <td class="mono">43.49 dB star (0.208 peak) · 23.74 dB clipped step</td>
+            <td class="mono"><strong>51.26 dB star (0.639 peak, 0.987 flux) · 28.39 dB clipped</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SECTION 3: 12-PHOTO FULL-PICTURE + MULTI-REGION INTERACTIVE EXPLORER -->
+  <div class="card">
+    <div class="head-row">
+      <div class="title">3. Real RAW Explorer — Full Picture + Interactive Multi-Section Zoom, Slider &amp; Side-by-Side</div>
+      <div class="sub">12 real Bayer RAWs · 48 full-res regions · Hasselblad X2D II / X1D II &amp; Sony A7 III / RX100</div>
+    </div>
+
+    <!-- 12-Photo Thumbnail Picker -->
+    <div class="scene-strip" id="sceneStrip"></div>
+
+    <!-- Mode + Version Pair + Zoom Controls -->
+    <div class="controls-row">
+      <div class="ctrl-group">
+        <span class="ctrl-lbl">Mode</span>
+        <button class="pill-btn active" id="modeSlider">Slider (A↔B)</button>
+        <button class="pill-btn" id="modeSide2">Side-by-Side (A|B)</button>
+        <button class="pill-btn" id="modeSide3">3-Up All</button>
+        <button class="pill-btn" id="modeFull">Full Picture</button>
+      </div>
+      <div class="ctrl-group" id="pairGroup">
+        <span class="ctrl-lbl">Compare</span>
+        <select class="ver-select" id="selA" aria-label="Left version">
+          <option value="0" selected>RAW (2× CFA)</option>
+          <option value="1">Denoised (r4)</option>
+          <option value="2">PhotoSRv2</option>
+        </select>
+        <span style="color: var(--muted-foreground); font-size: 10.5px;">vs</span>
+        <select class="ver-select" id="selB" aria-label="Right version">
+          <option value="0">RAW (2× CFA)</option>
+          <option value="1">Denoised (r4)</option>
+          <option value="2" selected>PhotoSRv2</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-lbl">Zoom</span>
+        <button class="pill-btn active" data-zoom="1">1×</button>
+        <button class="pill-btn" data-zoom="2">2×</button>
+        <button class="pill-btn" data-zoom="3">3×</button>
+        <button class="pill-btn" data-zoom="4">4×</button>
+      </div>
+    </div>
+
+    <!-- Split Workspace: Full Picture Navigator (Left) + Active Comparison Viewer (Right) -->
+    <div class="explorer-grid">
+      <!-- Left: Full Picture Navigator -->
+      <div class="nav-pane">
+        <div class="nav-head">
+          <span class="nav-title">Full Picture &amp; Sections</span>
+          <span class="sub" id="navDims"></span>
+        </div>
+        <div class="full-frame-box" id="fullFrameBox">
+          <img id="navFullImg" alt="Full RAW photograph overview" />
+        </div>
+        <div class="region-list" id="regionList"></div>
+        <div class="nav-hint" id="navHint">Click any numbered box on the full photo to jump to that 1:1 section. Drag to wipe slider; at 2×–4× drag image to pan.</div>
+      </div>
+
+      <!-- Right: Main Zoomed Comparison Stage -->
+      <div class="viewer-pane">
+        <!-- Slider View -->
+        <div class="split-stage" id="splitStage">
+          <div class="split-layer cover" id="splitRightLayer"><img id="splitRightImg" alt="Version B" /></div>
+          <div class="split-layer cover" id="splitLeftLayer"><img id="splitLeftImg" alt="Version A" /></div>
+          <div class="split-line" id="splitLine"></div>
+          <div class="split-knob" id="splitKnob">⇄</div>
+          <div class="split-tag left" id="splitTagA">Denoised (r4)</div>
+          <div class="split-tag right" id="splitTagB">PhotoSRv2</div>
+          <div class="zoom-badge" id="zoomBadge">1× · Drag divider</div>
+        </div>
+
+        <!-- 2-Up / 3-Up Side-by-Side View -->
+        <div class="side-grid cols-2" id="sideGrid"></div>
+
+        <!-- Large Full Picture View -->
+        <div class="full-large-wrap" id="fullLargeWrap">
+          <div class="full-large-vp" id="fullLargeVp">
+            <div class="full-large-inner" id="fullLargeInner">
+              <img id="fullLargeImg" alt="Full picture large view" />
+            </div>
+          </div>
+          <div class="zoom-badge" id="fullZoomBadge">Full Frame · Click any numbered box to inspect 1:1</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Telemetry & Notes -->
+    <div class="meta-bar" style="margin-top: 9px;">
+      <div class="meta-top">
+        <div class="meta-name" id="metaTitle"></div>
+        <div class="meta-chips" id="metaChips"></div>
+      </div>
+      <p class="meta-note" id="metaNote"></p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  // Architecture tabs
+  var tabBtns = document.querySelectorAll(".tab-btn");
+  tabBtns.forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      var target = btn.getAttribute("data-tab");
+      tabBtns.forEach(function(b) { b.classList.toggle("active", b === btn); });
+      document.querySelectorAll(".tab-panel").forEach(function(p) {
+        p.classList.toggle("active", p.id === "tab-" + target);
+      });
+    });
+  });
+
+  var SCENES = [{"id":"mansion_x2d","name":"Noisy Mansion (1703465868.3fr)","short":"Mansion 100MP","camera":"Hasselblad X2D II 100C","dims":"11904\u00d78842","aspect":1.3463,"tag":"Noisy Low-Light + Lamps","lift":"8.0\u00d7","note":"100MP twilight shot lifted 6.5\u00d7 (+2.7 EV): heavy shadow noise on stone masonry is wiped clean by r4_plain, while PhotoSRv2 sharpens stone mortar, gables, crescent moon limb, and clipped path lamps with zero dark/cyan ringing.","thumb":"assets/mansion_x2d/thumb.jpg","full":"assets/mansion_x2d/full.jpg","fullCompare":null,"regions":[{"label":"Lit Stairwell Window & Stone","box":[0.6458,0.4632,0.0323,0.0434],"imgs":["assets/mansion_x2d/r1_raw.jpg","assets/mansion_x2d/r1_den.jpg","assets/mansion_x2d/r1_sr2.jpg"],"edgeGain":"1.25\u00d7","range":"[+0.0000, 0.0165]","chroma":"0.00004","negCount":0,"overCount":0,"exact":true},{"label":"Stone Wall & Dormer Windows","box":[0.4988,0.4232,0.0323,0.0434],"imgs":["assets/mansion_x2d/r2_raw.jpg","assets/mansion_x2d/r2_den.jpg","assets/mansion_x2d/r2_sr2.jpg"],"edgeGain":"1.32\u00d7","range":"[+0.0000, 0.0087]","chroma":"0.00003","negCount":0,"overCount":0,"exact":true},{"label":"Globe Path Lamp & Steps","box":[0.3288,0.7532,0.0323,0.0434],"imgs":["assets/mansion_x2d/r3_raw.jpg","assets/mansion_x2d/r3_den.jpg","assets/mansion_x2d/r3_sr2.jpg"],"edgeGain":"1.25\u00d7","range":"[+0.0005, 1.0000]","chroma":"0.00027","negCount":0,"overCount":0,"exact":true},{"label":"Crescent Moon & Twilight Sky","box":[0.5139,0.1984,0.0323,0.0434],"imgs":["assets/mansion_x2d/r4_raw.jpg","assets/mansion_x2d/r4_den.jpg","assets/mansion_x2d/r4_sr2.jpg"],"edgeGain":"1.23\u00d7","range":"[+0.0099, 1.0000]","chroma":"0.00007","negCount":0,"overCount":0,"exact":true}]},{"id":"winter_sunset","name":"Winter Snow Sunset","short":"Snow Sunset","camera":"SONY ILCE-7M3","dims":"6024\u00d74024","aspect":1.497,"tag":"Clipped Sun + Branches","lift":"1.2\u00d7","note":"Direct sunset behind bare winter branches over snow: PhotoSRv2 tightens fine twigs and horizon roofs while keeping the clipped solar disc and snow highlights halo-free.","thumb":"assets/winter_sunset/thumb.jpg","full":"assets/winter_sunset/full.jpg","fullCompare":null,"regions":[{"label":"Clipped Sun & Trees","box":[0.5535,0.3902,0.0531,0.0795],"imgs":["assets/winter_sunset/r1_raw.jpg","assets/winter_sunset/r1_den.jpg","assets/winter_sunset/r1_sr2.jpg"],"edgeGain":"1.92\u00d7","range":"[+0.0027, 1.0000]","chroma":"0.00993","negCount":0,"overCount":0,"exact":true},{"label":"Bare Branches & Sky","box":[0.2334,0.2604,0.0531,0.0795],"imgs":["assets/winter_sunset/r2_raw.jpg","assets/winter_sunset/r2_den.jpg","assets/winter_sunset/r2_sr2.jpg"],"edgeGain":"1.44\u00d7","range":"[+0.0013, 0.3183]","chroma":"0.00154","negCount":0,"overCount":0,"exact":true},{"label":"Village Rooftops","box":[0.1036,0.4404,0.0531,0.0795],"imgs":["assets/winter_sunset/r3_raw.jpg","assets/winter_sunset/r3_den.jpg","assets/winter_sunset/r3_sr2.jpg"],"edgeGain":"1.62\u00d7","range":"[+0.0002, 0.0900]","chroma":"0.00035","negCount":0,"overCount":0,"exact":true},{"label":"Snow Path & Water","box":[0.6335,0.4801,0.0531,0.0795],"imgs":["assets/winter_sunset/r4_raw.jpg","assets/winter_sunset/r4_den.jpg","assets/winter_sunset/r4_sr2.jpg"],"edgeGain":"1.67\u00d7","range":"[+0.0010, 0.4203]","chroma":"0.00156","negCount":0,"overCount":0,"exact":true}]},{"id":"mesh_pc","name":"Perforated Mesh PC Case","short":"Mesh PC Case","camera":"SONY ILCE-7M3","dims":"6024\u00d74024","aspect":1.497,"tag":"Periodic Metal Grid","lift":"1.6\u00d7","note":"Extreme fine perforated aluminum mesh + glowing green LED: tests high-frequency periodic geometry, moir\u00e9 suppression, and color edge fidelity in Bayer space.","thumb":"assets/mesh_pc/thumb.jpg","full":"assets/mesh_pc/full.jpg","fullCompare":null,"regions":[{"label":"Mesh & Green LED","box":[0.6335,0.5204,0.0531,0.0795],"imgs":["assets/mesh_pc/r1_raw.jpg","assets/mesh_pc/r1_den.jpg","assets/mesh_pc/r1_sr2.jpg"],"edgeGain":"1.65\u00d7","range":"[+0.0001, 1.0000]","chroma":"0.00231","negCount":0,"overCount":0,"exact":true},{"label":"Fine Perforation Grid","box":[0.6936,0.3201,0.0531,0.0795],"imgs":["assets/mesh_pc/r2_raw.jpg","assets/mesh_pc/r2_den.jpg","assets/mesh_pc/r2_sr2.jpg"],"edgeGain":"1.21\u00d7","range":"[+0.0000, 0.1461]","chroma":"0.00104","negCount":0,"overCount":0,"exact":true},{"label":"MacBook & Cyan Edge","box":[0.2533,0.7604,0.0531,0.0795],"imgs":["assets/mesh_pc/r3_raw.jpg","assets/mesh_pc/r3_den.jpg","assets/mesh_pc/r3_sr2.jpg"],"edgeGain":"6.58\u00d7","range":"[+0.0135, 0.0351]","chroma":"0.00005","negCount":0,"overCount":0,"exact":true},{"label":"Top Highlight Corner","box":[0.8134,0.1203,0.0531,0.0795],"imgs":["assets/mesh_pc/r4_raw.jpg","assets/mesh_pc/r4_den.jpg","assets/mesh_pc/r4_sr2.jpg"],"edgeGain":"1.05\u00d7","range":"[+0.0003, 0.1405]","chroma":"0.00017","negCount":0,"overCount":0,"exact":true}]},{"id":"courtyard","name":"Courtyard & Tile Roofs","short":"Courtyard","camera":"Hasselblad X1D II 50C","dims":"8278\u00d76208","aspect":1.3334,"tag":"Daylight Architecture","lift":"1.5\u00d7","note":"50MP daylight scene with clay roof tiles, gravel texture, musicians, and backlit tree leaves: PhotoSRv2 recovers crisp roof ridges and fabric/gravel micro-contrast.","thumb":"assets/courtyard/thumb.jpg","full":"assets/courtyard/full.jpg","fullCompare":null,"regions":[{"label":"Musicians & Gravel","box":[0.3269,0.509,0.0464,0.0619],"imgs":["assets/courtyard/r1_raw.jpg","assets/courtyard/r1_den.jpg","assets/courtyard/r1_sr2.jpg"],"edgeGain":"1.66\u00d7","range":"[+0.0001, 0.6976]","chroma":"0.00301","negCount":0,"overCount":0,"exact":true},{"label":"Red Clay Roof Tiles","box":[0.1469,0.3692,0.0464,0.0619],"imgs":["assets/courtyard/r2_raw.jpg","assets/courtyard/r2_den.jpg","assets/courtyard/r2_sr2.jpg"],"edgeGain":"1.55\u00d7","range":"[+0.0002, 0.0960]","chroma":"0.00041","negCount":0,"overCount":0,"exact":true},{"label":"Crowd & Parasol","box":[0.6369,0.4691,0.0464,0.0619],"imgs":["assets/courtyard/r3_raw.jpg","assets/courtyard/r3_den.jpg","assets/courtyard/r3_sr2.jpg"],"edgeGain":"1.90\u00d7","range":"[+0.0001, 0.5257]","chroma":"0.00322","negCount":0,"overCount":0,"exact":true},{"label":"Foliage & Sky","box":[0.5767,0.1392,0.0464,0.0619],"imgs":["assets/courtyard/r4_raw.jpg","assets/courtyard/r4_den.jpg","assets/courtyard/r4_sr2.jpg"],"edgeGain":"1.11\u00d7","range":"[+0.0047, 0.2634]","chroma":"0.00007","negCount":0,"overCount":0,"exact":true}]},{"id":"trail_gate","name":"Wooden Gate & Heath","short":"Trail Gate","camera":"Hasselblad X1D II 50C","dims":"8278\u00d76208","aspect":1.3334,"tag":"Wood Grain & Foliage","lift":"1.4\u00d7","note":"Weathered timber gate, trail marker sign, sand path, and woodland edge: demonstrates natural organic detail enhancement without false sharpening halos.","thumb":"assets/trail_gate/thumb.jpg","full":"assets/trail_gate/full.jpg","fullCompare":null,"regions":[{"label":"Wooden Gate & Sign","box":[0.5767,0.6891,0.0464,0.0619],"imgs":["assets/trail_gate/r1_raw.jpg","assets/trail_gate/r1_den.jpg","assets/trail_gate/r1_sr2.jpg"],"edgeGain":"2.25\u00d7","range":"[+0.0015, 0.2010]","chroma":"0.00163","negCount":0,"overCount":0,"exact":true},{"label":"Hikers on Path","box":[0.2368,0.529,0.0464,0.0619],"imgs":["assets/trail_gate/r2_raw.jpg","assets/trail_gate/r2_den.jpg","assets/trail_gate/r2_sr2.jpg"],"edgeGain":"1.86\u00d7","range":"[+0.0004, 0.3476]","chroma":"0.00128","negCount":0,"overCount":0,"exact":true},{"label":"Woodland Canopy","box":[0.4569,0.3492,0.0464,0.0619],"imgs":["assets/trail_gate/r3_raw.jpg","assets/trail_gate/r3_den.jpg","assets/trail_gate/r3_sr2.jpg"],"edgeGain":"2.13\u00d7","range":"[+0.0011, 0.4965]","chroma":"0.00107","negCount":0,"overCount":0,"exact":true},{"label":"Fence Post Grain","box":[0.3467,0.749,0.0464,0.0619],"imgs":["assets/trail_gate/r4_raw.jpg","assets/trail_gate/r4_den.jpg","assets/trail_gate/r4_sr2.jpg"],"edgeGain":"1.72\u00d7","range":"[+0.0004, 0.1059]","chroma":"0.00040","negCount":0,"overCount":0,"exact":true}]},{"id":"bouquet","name":"Floral Bouquet Macro","short":"Floral Macro","camera":"Hasselblad X1D II 50C","dims":"8278\u00d76208","aspect":1.3334,"tag":"Petals & Soft Bokeh","lift":"1.3\u00d7","note":"Delicate crimson/white petals against shallow-DOF bokeh: sharpens in-focus petal rims and veins cleanly while keeping smooth out-of-focus blooms calm.","thumb":"assets/bouquet/thumb.jpg","full":"assets/bouquet/full.jpg","fullCompare":null,"regions":[{"label":"Pink Petal Center","box":[0.4069,0.5889,0.0464,0.0619],"imgs":["assets/bouquet/r1_raw.jpg","assets/bouquet/r1_den.jpg","assets/bouquet/r1_sr2.jpg"],"edgeGain":"1.19\u00d7","range":"[+0.0072, 0.3379]","chroma":"0.00047","negCount":0,"overCount":0,"exact":true},{"label":"White Bloom Detail","box":[0.3167,0.289,0.0464,0.0619],"imgs":["assets/bouquet/r2_raw.jpg","assets/bouquet/r2_den.jpg","assets/bouquet/r2_sr2.jpg"],"edgeGain":"1.03\u00d7","range":"[+0.0020, 0.1545]","chroma":"0.00007","negCount":0,"overCount":0,"exact":true},{"label":"Rose Bud & Rim","box":[0.8169,0.6092,0.0464,0.0619],"imgs":["assets/bouquet/r3_raw.jpg","assets/bouquet/r3_den.jpg","assets/bouquet/r3_sr2.jpg"],"edgeGain":"1.05\u00d7","range":"[+0.0459, 0.1952]","chroma":"0.00007","negCount":0,"overCount":0,"exact":true},{"label":"Upper Bokeh & Stems","box":[0.6767,0.1891,0.0464,0.0619],"imgs":["assets/bouquet/r4_raw.jpg","assets/bouquet/r4_den.jpg","assets/bouquet/r4_sr2.jpg"],"edgeGain":"1.05\u00d7","range":"[+0.0747, 0.3081]","chroma":"0.00010","negCount":0,"overCount":0,"exact":true}]},{"id":"pine_clouds","name":"Pine Stand & Clouds","short":"Pine & Sky","camera":"Hasselblad X1D II 50C","dims":"8278\u00d76208","aspect":1.3334,"tag":"Fine Silhouettes","lift":"1.5\u00d7","note":"Distant Scots pine canopy and fine needles silhouetted against sunlit cumulus clouds and dark heathland foreground.","thumb":"assets/pine_clouds/thumb.jpg","full":"assets/pine_clouds/full.jpg","fullCompare":null,"regions":[{"label":"Distant Pine Stand","box":[0.2967,0.4191,0.0464,0.0619],"imgs":["assets/pine_clouds/r1_raw.jpg","assets/pine_clouds/r1_den.jpg","assets/pine_clouds/r1_sr2.jpg"],"edgeGain":"1.63\u00d7","range":"[+0.0000, 0.2564]","chroma":"0.00219","negCount":0,"overCount":0,"exact":true},{"label":"Lone Tree & Horizon","box":[0.6069,0.4491,0.0464,0.0619],"imgs":["assets/pine_clouds/r2_raw.jpg","assets/pine_clouds/r2_den.jpg","assets/pine_clouds/r2_sr2.jpg"],"edgeGain":"1.85\u00d7","range":"[+0.0010, 0.3182]","chroma":"0.00380","negCount":0,"overCount":0,"exact":true},{"label":"Cloud Wisps & Sky","box":[0.7168,0.249,0.0464,0.0619],"imgs":["assets/pine_clouds/r3_raw.jpg","assets/pine_clouds/r3_den.jpg","assets/pine_clouds/r3_sr2.jpg"],"edgeGain":"1.15\u00d7","range":"[+0.0586, 0.2949]","chroma":"0.00012","negCount":0,"overCount":0,"exact":true},{"label":"Foreground Heath","box":[0.4269,0.7091,0.0464,0.0619],"imgs":["assets/pine_clouds/r4_raw.jpg","assets/pine_clouds/r4_den.jpg","assets/pine_clouds/r4_sr2.jpg"],"edgeGain":"1.90\u00d7","range":"[+0.0009, 0.1074]","chroma":"0.00045","negCount":0,"overCount":0,"exact":true}]},{"id":"airplane_wing","name":"easyJet Wing & Clouds","short":"Wing & Text","camera":"SONY DSC-RX100M5","dims":"5496\u00d73672","aspect":1.4967,"tag":"Typography & Clouds","lift":"1.1\u00d7","note":"Unseen Sony RX100 1-inch sensor: crisp painted typography on the orange winglet and metal rivets above smooth cloud gradients.","thumb":"assets/airplane_wing/thumb.jpg","full":"assets/airplane_wing/full.jpg","fullCompare":null,"regions":[{"label":"easyJet Winglet Text","box":[0.4057,0.1514,0.0582,0.0871],"imgs":["assets/airplane_wing/r1_raw.jpg","assets/airplane_wing/r1_den.jpg","assets/airplane_wing/r1_sr2.jpg"],"edgeGain":"1.34\u00d7","range":"[+0.0491, 0.9469]","chroma":"0.00373","negCount":0,"overCount":0,"exact":true},{"label":"Wing Leading Edge","box":[0.6408,0.2462,0.0582,0.0871],"imgs":["assets/airplane_wing/r2_raw.jpg","assets/airplane_wing/r2_den.jpg","assets/airplane_wing/r2_sr2.jpg"],"edgeGain":"1.41\u00d7","range":"[+0.0596, 0.3241]","chroma":"0.00056","negCount":0,"overCount":0,"exact":true},{"label":"Mid Cloud Deck","box":[0.4909,0.4363,0.0582,0.0871],"imgs":["assets/airplane_wing/r3_raw.jpg","assets/airplane_wing/r3_den.jpg","assets/airplane_wing/r3_sr2.jpg"],"edgeGain":"1.37\u00d7","range":"[+0.0666, 0.2181]","chroma":"0.00006","negCount":0,"overCount":0,"exact":true},{"label":"Window Frame & Haze","box":[0.3009,0.6362,0.0582,0.0871],"imgs":["assets/airplane_wing/r4_raw.jpg","assets/airplane_wing/r4_den.jpg","assets/airplane_wing/r4_sr2.jpg"],"edgeGain":"1.69\u00d7","range":"[+0.0467, 0.2418]","chroma":"0.00034","negCount":0,"overCount":0,"exact":true}]},{"id":"night_demo","name":"Night Waterfront","short":"Night Demo","camera":"Demo DNG","dims":"1024\u00d71024","aspect":1.0,"tag":"200:1 Clipped Lamps","lift":"4.0\u00d7","note":"Approved ISO 100 night benchmark: eliminates Nov-7 negative/cyan ringing on 200:1 streetlights while restoring brick mortar, flag graphics, and waterfront railings.","thumb":"assets/night_demo/thumb.jpg","full":"assets/night_demo/full.jpg","fullCompare":["assets/night_demo/full_raw.jpg","assets/night_demo/full_den.jpg","assets/night_demo/full_sr2.jpg"],"regions":[{"label":"Brick Wall & Flag","box":[0.4629,0.3027,0.3125,0.3125],"imgs":["assets/night_demo/r1_raw.jpg","assets/night_demo/r1_den.jpg","assets/night_demo/r1_sr2.jpg"],"edgeGain":"1.84\u00d7","range":"[+0.0003, 1.0000]","chroma":"0.00338","negCount":0,"overCount":0,"exact":true},{"label":"Lamp & Trees","box":[0.3027,0.1133,0.3125,0.3125],"imgs":["assets/night_demo/r2_raw.jpg","assets/night_demo/r2_den.jpg","assets/night_demo/r2_sr2.jpg"],"edgeGain":"1.84\u00d7","range":"[+0.0003, 1.0000]","chroma":"0.00338","negCount":0,"overCount":0,"exact":true},{"label":"Glowing Railings","box":[0.3438,0.4824,0.3125,0.3125],"imgs":["assets/night_demo/r3_raw.jpg","assets/night_demo/r3_den.jpg","assets/night_demo/r3_sr2.jpg"],"edgeGain":"1.84\u00d7","range":"[+0.0003, 1.0000]","chroma":"0.00338","negCount":0,"overCount":0,"exact":true},{"label":"River Reflections","box":[0.4434,0.6641,0.3125,0.3125],"imgs":["assets/night_demo/r4_raw.jpg","assets/night_demo/r4_den.jpg","assets/night_demo/r4_sr2.jpg"],"edgeGain":"1.84\u00d7","range":"[+0.0003, 1.0000]","chroma":"0.00338","negCount":0,"overCount":0,"exact":true}]},{"id":"room_demo","name":"Living Room ISO 25600","short":"Room 25.6k","camera":"Demo DNG","dims":"1024\u00d71024","aspect":1.0,"tag":"Extreme High-ISO","lift":"2.0\u00d7","note":"Extreme ISO 25600 benchmark: defect prepass clears hot pixels before SR; PhotoSRv2 recovers woven textile texture cleanly without amplifying chroma speckle.","thumb":"assets/room_demo/thumb.jpg","full":"assets/room_demo/full.jpg","fullCompare":["assets/room_demo/full_raw.jpg","assets/room_demo/full_den.jpg","assets/room_demo/full_sr2.jpg"],"regions":[{"label":"Center Fabric Weave","box":[0.3438,0.3438,0.3125,0.3125],"imgs":["assets/room_demo/r1_raw.jpg","assets/room_demo/r1_den.jpg","assets/room_demo/r1_sr2.jpg"],"edgeGain":"1.40\u00d7","range":"[+0.0000, 0.0536]","chroma":"0.00020","negCount":0,"overCount":0,"exact":true},{"label":"Upper-Right Cushion","box":[0.623,0.0625,0.3125,0.3125],"imgs":["assets/room_demo/r2_raw.jpg","assets/room_demo/r2_den.jpg","assets/room_demo/r2_sr2.jpg"],"edgeGain":"1.40\u00d7","range":"[+0.0000, 0.0536]","chroma":"0.00020","negCount":0,"overCount":0,"exact":true},{"label":"Left Shadow Weave","box":[0.084,0.3242,0.3125,0.3125],"imgs":["assets/room_demo/r3_raw.jpg","assets/room_demo/r3_den.jpg","assets/room_demo/r3_sr2.jpg"],"edgeGain":"1.40\u00d7","range":"[+0.0000, 0.0536]","chroma":"0.00020","negCount":0,"overCount":0,"exact":true},{"label":"Lower Weave Detail","box":[0.3633,0.623,0.3125,0.3125],"imgs":["assets/room_demo/r4_raw.jpg","assets/room_demo/r4_den.jpg","assets/room_demo/r4_sr2.jpg"],"edgeGain":"1.40\u00d7","range":"[+0.0000, 0.0536]","chroma":"0.00020","negCount":0,"overCount":0,"exact":true}]},{"id":"mushroom_demo","name":"Mushroom ISO 3200","short":"Mushroom","camera":"Demo DNG","dims":"1024\u00d71024","aspect":1.0,"tag":"Organic & Bokeh","lift":"1.0\u00d7","note":"ISO 3200 organic stems & soft bokeh: tightens in-focus stem edges while keeping smooth background transitions quiet.","thumb":"assets/mushroom_demo/thumb.jpg","full":"assets/mushroom_demo/full.jpg","fullCompare":["assets/mushroom_demo/full_raw.jpg","assets/mushroom_demo/full_den.jpg","assets/mushroom_demo/full_sr2.jpg"],"regions":[{"label":"Center Stems","box":[0.3438,0.3438,0.3125,0.3125],"imgs":["assets/mushroom_demo/r1_raw.jpg","assets/mushroom_demo/r1_den.jpg","assets/mushroom_demo/r1_sr2.jpg"],"edgeGain":"1.37\u00d7","range":"[+0.0011, 0.7993]","chroma":"0.00105","negCount":0,"overCount":0,"exact":true},{"label":"Upper-Left Detail","box":[0.1035,0.123,0.3125,0.3125],"imgs":["assets/mushroom_demo/r2_raw.jpg","assets/mushroom_demo/r2_den.jpg","assets/mushroom_demo/r2_sr2.jpg"],"edgeGain":"1.37\u00d7","range":"[+0.0011, 0.7993]","chroma":"0.00105","negCount":0,"overCount":0,"exact":true},{"label":"Lower-Right Foliage","box":[0.584,0.5625,0.3125,0.3125],"imgs":["assets/mushroom_demo/r3_raw.jpg","assets/mushroom_demo/r3_den.jpg","assets/mushroom_demo/r3_sr2.jpg"],"edgeGain":"1.37\u00d7","range":"[+0.0011, 0.7993]","chroma":"0.00105","negCount":0,"overCount":0,"exact":true},{"label":"Smooth Bokeh Zone","box":[0.1035,0.6035,0.3125,0.3125],"imgs":["assets/mushroom_demo/r4_raw.jpg","assets/mushroom_demo/r4_den.jpg","assets/mushroom_demo/r4_sr2.jpg"],"edgeGain":"1.37\u00d7","range":"[+0.0011, 0.7993]","chroma":"0.00105","negCount":0,"overCount":0,"exact":true}]},{"id":"a7m3_fireworks","name":"Fireworks & Night Village","short":"Fireworks","camera":"SONY ILCE-7M3","dims":"6024\u00d74024","aspect":1.497,"tag":"Point Glints \u00b7 Cross-Cam","lift":"1.2\u00d7","note":"Unseen Sony A7 III ISO 1600 fireworks over a dark village: sharp spark trails and bright ground flash with zero negative halos or >1.0 blowups.","thumb":"assets/a7m3_fireworks/thumb.jpg","full":"assets/a7m3_fireworks/full.jpg","fullCompare":null,"regions":[{"label":"Main Firework Burst","box":[0.3234,0.3703,0.0531,0.0795],"imgs":["assets/a7m3_fireworks/r1_raw.jpg","assets/a7m3_fireworks/r1_den.jpg","assets/a7m3_fireworks/r1_sr2.jpg"],"edgeGain":"1.13\u00d7","range":"[+0.0018, 1.0000]","chroma":"0.00010","negCount":0,"overCount":0,"exact":true},{"label":"Ground Flash & Roofs","box":[0.6235,0.5701,0.0531,0.0795],"imgs":["assets/a7m3_fireworks/r2_raw.jpg","assets/a7m3_fireworks/r2_den.jpg","assets/a7m3_fireworks/r2_sr2.jpg"],"edgeGain":"1.20\u00d7","range":"[+0.0170, 1.0000]","chroma":"0.00038","negCount":0,"overCount":0,"exact":true},{"label":"Distant Burst & Sky","box":[0.6434,0.4205,0.0531,0.0795],"imgs":["assets/a7m3_fireworks/r3_raw.jpg","assets/a7m3_fireworks/r3_den.jpg","assets/a7m3_fireworks/r3_sr2.jpg"],"edgeGain":"1.60\u00d7","range":"[+0.0020, 1.0000]","chroma":"0.00564","negCount":0,"overCount":0,"exact":true},{"label":"Village Rooftops","box":[0.1936,0.5701,0.0531,0.0795],"imgs":["assets/a7m3_fireworks/r4_raw.jpg","assets/a7m3_fireworks/r4_den.jpg","assets/a7m3_fireworks/r4_sr2.jpg"],"edgeGain":"1.53\u00d7","range":"[+0.0004, 1.0000]","chroma":"0.00035","negCount":0,"overCount":0,"exact":true}]}];
+  var VER_NAMES = ["RAW (2× CFA)", "Denoised (r4)", "PhotoSRv2"];
+  var VER_SUBS = ["original mosaic", "Stage 1 guide", "Stage 2 + TTA"];
+
+  var activeScene = 0;
+  var activeRegion = 0;
+  var mode = "slider"; // "slider" | "side2" | "side3" | "full"
+  var verA = 0; // RAW (2× CFA)
+  var verB = 2; // PhotoSRv2
+  var zoom = 1;
+  var panX = 0; // normalized [-0.5..0.5]
+  var panY = 0;
+  var splitPct = 50;
+
+  var strip = document.getElementById("sceneStrip");
+  var navFullImg = document.getElementById("navFullImg");
+  var fullFrameBox = document.getElementById("fullFrameBox");
+  var regionList = document.getElementById("regionList");
+  var navDims = document.getElementById("navDims");
+
+  var btnSlider = document.getElementById("modeSlider");
+  var btnSide2 = document.getElementById("modeSide2");
+  var btnSide3 = document.getElementById("modeSide3");
+  var btnFull = document.getElementById("modeFull");
+  var pairGroup = document.getElementById("pairGroup");
+  var selA = document.getElementById("selA");
+  var selB = document.getElementById("selB");
+  var zoomBtns = document.querySelectorAll("[data-zoom]");
+
+  var splitStage = document.getElementById("splitStage");
+  var splitLeftLayer = document.getElementById("splitLeftLayer");
+  var splitLeftImg = document.getElementById("splitLeftImg");
+  var splitRightImg = document.getElementById("splitRightImg");
+  var splitLine = document.getElementById("splitLine");
+  var splitKnob = document.getElementById("splitKnob");
+  var splitTagA = document.getElementById("splitTagA");
+  var splitTagB = document.getElementById("splitTagB");
+  var zoomBadge = document.getElementById("zoomBadge");
+
+  var sideGrid = document.getElementById("sideGrid");
+  var fullLargeWrap = document.getElementById("fullLargeWrap");
+  var fullLargeVp = document.getElementById("fullLargeVp");
+  var fullLargeInner = document.getElementById("fullLargeInner");
+  var fullLargeImg = document.getElementById("fullLargeImg");
+  var fullZoomBadge = document.getElementById("fullZoomBadge");
+
+  var metaTitle = document.getElementById("metaTitle");
+  var metaChips = document.getElementById("metaChips");
+  var metaNote = document.getElementById("metaNote");
+
+  function clampPan() {
+    var lim = zoom > 1 ? (zoom - 1) / (2 * zoom) : 0;
+    panX = Math.max(-lim, Math.min(lim, panX));
+    panY = Math.max(-lim, Math.min(lim, panY));
+  }
+
+  function applyTransform() {
+    clampPan();
+    var tx = (panX * 100).toFixed(3) + "%";
+    var ty = (panY * 100).toFixed(3) + "%";
+    var tf = "scale(" + zoom + ") translate(" + tx + ", " + ty + ")";
+    splitLeftImg.style.transform = tf;
+    splitRightImg.style.transform = tf;
+    sideGrid.querySelectorAll(".side-vp img").forEach(function(im) {
+      im.style.transform = tf;
+    });
+    fullLargeInner.style.transform = tf;
+    splitStage.classList.toggle("pan-mode", zoom > 1);
+    zoomBadge.textContent = zoom + "× · " + (zoom > 1 ? "Drag handle to wipe · Drag photo to pan" : "Drag anywhere to wipe");
+    fullZoomBadge.textContent = "Full Frame (" + zoom + "×) · Click any numbered box to inspect 1:1";
+  }
+
+  function setSplit(pct) {
+    splitPct = Math.max(2, Math.min(98, pct));
+    splitLeftLayer.style.clipPath = "inset(0 " + (100 - splitPct) + "% 0 0)";
+    splitLine.style.left = splitPct + "%";
+    splitKnob.style.left = splitPct + "%";
+  }
+
+  function buildStrip() {
+    strip.innerHTML = "";
+    SCENES.forEach(function(sc, idx) {
+      var b = document.createElement("button");
+      b.className = "scene-tile" + (idx === activeScene ? " active" : "");
+      b.title = sc.name + " (" + sc.camera + " · " + sc.dims + ")";
+      b.innerHTML = '<img src="' + sc.thumb + '" alt="' + sc.short + '" /><span>' + sc.short + '</span>';
+      b.addEventListener("click", function() {
+        activeScene = idx;
+        activeRegion = 0;
+        zoom = 1; panX = 0; panY = 0;
+        renderAll();
+      });
+      strip.appendChild(b);
+    });
+  }
+
+  function renderHotspots(container, sc, switchToRegionMode) {
+    container.querySelectorAll(".hotspot").forEach(function(el) { el.remove(); });
+    sc.regions.forEach(function(reg, i) {
+      var h = document.createElement("div");
+      h.className = "hotspot" + (i === activeRegion && mode !== "full" ? " active" : "");
+      h.style.left = (reg.box[0] * 100) + "%";
+      h.style.top = (reg.box[1] * 100) + "%";
+      h.style.width = Math.max(reg.box[2] * 100, 4.5) + "%";
+      h.style.height = Math.max(reg.box[3] * 100, 5.5) + "%";
+      h.title = (i + 1) + ". " + reg.label;
+      h.innerHTML = '<span class="hotspot-num">' + (i + 1) + '</span>';
+      h.addEventListener("click", function(e) {
+        e.stopPropagation();
+        activeRegion = i;
+        if (switchToRegionMode && mode === "full") mode = "slider";
+        zoom = 1; panX = 0; panY = 0;
+        renderAll();
+      });
+      container.appendChild(h);
+    });
+  }
+
+  function renderSideGrid(reg) {
+    var cols = mode === "side3" ? [0, 1, 2] : [verA, verB];
+    sideGrid.className = "side-grid " + (mode === "side3" ? "cols-3" : "cols-2");
+    sideGrid.innerHTML = "";
+    cols.forEach(function(vIdx) {
+      var col = document.createElement("div");
+      col.className = "side-col" + (vIdx === 2 ? " accent" : "");
+      col.innerHTML =
+        '<div class="side-hdr"><span>' + VER_NAMES[vIdx] + '</span><small' +
+        (vIdx === 2 ? ' style="color: var(--chart-1);"' : '') + '>' + VER_SUBS[vIdx] + '</small></div>' +
+        '<div class="side-vp"><img src="' + reg.imgs[vIdx] + '" alt="' + VER_NAMES[vIdx] + '" /></div>';
+      sideGrid.appendChild(col);
+    });
+    // Attach synchronized pan drag to all side-vp elements
+    sideGrid.querySelectorAll(".side-vp").forEach(function(vp) {
+      var panning = false, sx = 0, sy = 0, spx = 0, spy = 0;
+      vp.addEventListener("pointerdown", function(e) {
+        if (zoom <= 1) return;
+        panning = true;
+        vp.setPointerCapture(e.pointerId);
+        sx = e.clientX; sy = e.clientY; spx = panX; spy = panY;
+      });
+      vp.addEventListener("pointermove", function(e) {
+        if (!panning) return;
+        var rect = vp.getBoundingClientRect();
+        panX = spx + (e.clientX - sx) / (rect.width * zoom);
+        panY = spy + (e.clientY - sy) / (rect.height * zoom);
+        applyTransform();
+      });
+      vp.addEventListener("pointerup", function() { panning = false; });
+      vp.addEventListener("pointercancel", function() { panning = false; });
+    });
+  }
+
+  function renderAll() {
+    var sc = SCENES[activeScene];
+    if (activeRegion >= sc.regions.length) activeRegion = 0;
+    var reg = sc.regions[activeRegion];
+
+    // Update thumbnail strip active state
+    Array.prototype.forEach.call(strip.children, function(el, i) {
+      el.classList.toggle("active", i === activeScene);
+    });
+
+    // Update mode & zoom buttons
+    btnSlider.classList.toggle("active", mode === "slider");
+    btnSide2.classList.toggle("active", mode === "side2");
+    btnSide3.classList.toggle("active", mode === "side3");
+    btnFull.classList.toggle("active", mode === "full");
+    pairGroup.style.display = (mode === "slider" || mode === "side2") ? "flex" : "none";
+    zoomBtns.forEach(function(b) {
+      b.classList.toggle("active", parseInt(b.getAttribute("data-zoom"), 10) === zoom);
+    });
+
+    // Update left full-picture navigator
+    navDims.textContent = sc.dims;
+    navFullImg.src = sc.full;
+    renderHotspots(fullFrameBox, sc, true);
+
+    regionList.innerHTML = "";
+    sc.regions.forEach(function(r, i) {
+      var b = document.createElement("button");
+      b.className = "reg-btn" + (i === activeRegion && mode !== "full" ? " active" : "");
+      b.innerHTML = '<span class="reg-idx">' + (i + 1) + '</span><span>' + r.label + '</span>';
+      b.addEventListener("click", function() {
+        activeRegion = i;
+        if (mode === "full") mode = "slider";
+        zoom = 1; panX = 0; panY = 0;
+        renderAll();
+      });
+      regionList.appendChild(b);
+    });
+
+    // Update right viewer based on mode
+    splitStage.style.display = "none";
+    sideGrid.style.display = "none";
+    fullLargeWrap.style.display = "none";
+
+    if (mode === "slider") {
+      splitStage.style.display = "block";
+      splitLeftImg.src = reg.imgs[verA];
+      splitRightImg.src = reg.imgs[verB];
+      splitTagA.textContent = VER_NAMES[verA];
+      splitTagB.textContent = VER_NAMES[verB];
+      setSplit(splitPct);
+    } else if (mode === "side2" || mode === "side3") {
+      sideGrid.style.display = "grid";
+      renderSideGrid(reg);
+    } else if (mode === "full") {
+      fullLargeWrap.style.display = "block";
+      fullLargeImg.src = sc.full;
+      renderHotspots(fullLargeInner, sc, true);
+    }
+
+    applyTransform();
+
+    // Update telemetry bar
+    var regionTitle = (mode === "full") ? "Full Picture Overview" : ("Section " + (activeRegion + 1) + ": " + reg.label);
+    metaTitle.textContent = sc.name + " · " + regionTitle + " — " + sc.camera;
+    var haloTxt = (reg.negCount === 0 && reg.overCount === 0) ? "0 Halos / Blowups" : ("neg:" + reg.negCount + " over:" + reg.overCount);
+    metaChips.innerHTML =
+      '<span class="chip">Lift ' + sc.lift + '</span>' +
+      '<span class="chip ok">Edge ' + reg.edgeGain + ' vs Denoise</span>' +
+      '<span class="chip">Range ' + reg.range + '</span>' +
+      '<span class="chip">Chroma ' + reg.chroma + '</span>' +
+      '<span class="chip ok">' + (reg.exact ? 'Exact uint16 DNG' : 'DNG') + ' · ' + haloTxt + '</span>';
+    metaNote.textContent = sc.note;
+  }
+
+  // Mode buttons
+  btnSlider.addEventListener("click", function() { mode = "slider"; renderAll(); });
+  btnSide2.addEventListener("click", function() { mode = "side2"; renderAll(); });
+  btnSide3.addEventListener("click", function() { mode = "side3"; renderAll(); });
+  btnFull.addEventListener("click", function() { mode = "full"; zoom = 1; panX = 0; panY = 0; renderAll(); });
+
+  selA.addEventListener("change", function() { verA = parseInt(selA.value, 10); renderAll(); });
+  selB.addEventListener("change", function() { verB = parseInt(selB.value, 10); renderAll(); });
+
+  zoomBtns.forEach(function(b) {
+    b.addEventListener("click", function() {
+      zoom = parseInt(b.getAttribute("data-zoom"), 10);
+      if (zoom === 1) { panX = 0; panY = 0; }
+      zoomBtns.forEach(function(x) { x.classList.toggle("active", x === b); });
+      applyTransform();
+    });
+  });
+
+  // Slider drag (divider wipe vs pan when zoomed)
+  var dragMode = null; // "wipe" | "pan"
+  var dsx = 0, dsy = 0, dpx = 0, dpy = 0;
+  function wipeFromClientX(clientX) {
+    var rect = splitStage.getBoundingClientRect();
+    setSplit(((clientX - rect.left) / rect.width) * 100);
+  }
+  splitStage.addEventListener("pointerdown", function(e) {
+    var rect = splitStage.getBoundingClientRect();
+    var lineX = rect.left + (splitPct / 100) * rect.width;
+    var nearLine = Math.abs(e.clientX - lineX) < 22;
+    if (zoom === 1 || nearLine || e.target === splitLine || e.target === splitKnob) {
+      dragMode = "wipe";
+      wipeFromClientX(e.clientX);
+    } else {
+      dragMode = "pan";
+      dsx = e.clientX; dsy = e.clientY; dpx = panX; dpy = panY;
+    }
+    splitStage.setPointerCapture(e.pointerId);
+  });
+  splitStage.addEventListener("pointermove", function(e) {
+    if (!dragMode) return;
+    if (dragMode === "wipe") {
+      wipeFromClientX(e.clientX);
+    } else {
+      var rect = splitStage.getBoundingClientRect();
+      panX = dpx + (e.clientX - dsx) / (rect.width * zoom);
+      panY = dpy + (e.clientY - dsy) / (rect.height * zoom);
+      applyTransform();
+    }
+  });
+  splitStage.addEventListener("pointerup", function() { dragMode = null; });
+  splitStage.addEventListener("pointercancel", function() { dragMode = null; });
+
+  // Full picture pan when zoomed
+  var fullPan = false, fsx = 0, fsy = 0, fpx = 0, fpy = 0;
+  fullLargeVp.addEventListener("pointerdown", function(e) {
+    if (zoom <= 1 || e.target.classList.contains("hotspot")) return;
+    fullPan = true;
+    fullLargeVp.setPointerCapture(e.pointerId);
+    fsx = e.clientX; fsy = e.clientY; fpx = panX; fpy = panY;
+  });
+  fullLargeVp.addEventListener("pointermove", function(e) {
+    if (!fullPan) return;
+    var rect = fullLargeVp.getBoundingClientRect();
+    panX = fpx + (e.clientX - fsx) / (rect.width * zoom);
+    panY = fpy + (e.clientY - fsy) / (rect.height * zoom);
+    applyTransform();
+  });
+  fullLargeVp.addEventListener("pointerup", function() { fullPan = false; });
+  fullLargeVp.addEventListener("pointercancel", function() { fullPan = false; });
+
+  buildStrip();
+  renderAll();
+})();
+</script>
+</body>
+</html>

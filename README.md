@@ -26,6 +26,14 @@ Input and output use the same camera white balance, sRGB rendering and exposure 
 
 These examples predate highlight protection. The default `--highlights protect` now preserves input near sensor clipping to reduce denoising-induced colour fringes; clipped colour cannot be recovered, and noise is retained near highlights. The heuristic defect pre-pass can remove isolated single-pixel stars (use a body-specific dark map with `--prepass map`, or `--no-prepass` for astrophotography).
 
+### Experimental 2× RAW Super-Resolution (`PhotoSRv2`)
+
+An isolated clean-room 2× Bayer RAW-to-RAW super-resolution research track lives under `src/denoise_lab/sr/` alongside the production denoiser (kept isolated from production CLI defaults):
+
+- **Interactive comparison & architecture walkthrough:** open [`examples/sr_comparison/index.html`](examples/sr_comparison/index.html) locally in a browser to inspect the two-stage workflow, model layouts (`r4_plain` and `PhotoSRv2`), and 12 real RAW scenes (48 full-resolution regions across Hasselblad X2D II 100C, Hasselblad X1D II 50C, Sony ILCE-7M3, Sony RX100, and the three demo DNGs) with full-picture section navigation, interactive before/after slider, side-by-side comparison, and synchronized 1×–4× zoom.
+- **Sample JPEGs:** [`examples/sr_comparison/assets/`](examples/sr_comparison/assets/) contains the per-scene full frames and 1:1 `RAW (2× CFA)`, `Denoised (r4)`, and `PhotoSRv2` comparison crops.
+- **Training, benchmark & tests:** `scripts/sr_v2_train.py`, `scripts/sr_benchmark.py`, `scripts/sr_track_a_eval.py`, and `tests/test_raw_sr_v2.py`.
+
 ## Quick start
 
 Use Python **3.11 or newer**. From a terminal:

@@ -54,6 +54,13 @@
 
 ### Research and training additions
 
+- Added isolated clean-room 2× Bayer RAW-to-RAW super-resolution research package
+  (`src/denoise_lab/sr/` — `PhotoSRv2` with compressive `asinh` residual domain,
+  shift-equivariant `LocalSCA`, 24-ch post-`PixelShuffle(2)` HR refinement tail,
+  and exact 2-fold Bayer transpose TTA), benchmark/training scripts
+  (`scripts/sr_v2_train.py`, `scripts/sr_benchmark.py`, `scripts/sr_track_a_eval.py`),
+  CPU unit tests (`tests/test_raw_sr_v2.py`), and an interactive 12-photo comparison
+  page with full-resolution samples in `examples/sr_comparison/`.
 - Added optional `green_split` dual-head architecture (`G_avg`, `G_diff`),
   anti-aliased `aa_shallow2` resampling, highlight/chroma/green-DC/transpose-
   consistency loss terms, and Core ML dual-head compression protection.
